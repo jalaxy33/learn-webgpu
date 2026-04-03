@@ -17,7 +17,7 @@ async function main() {
 
   // Create a shader module
   const module = device.createShaderModule({
-    label: "hardcoded checkerboard triangle shaders",
+    label: "our hardcoded rgb triangle shaders",
     code: /* wgsl */ `
       // define output structure of our vertex shader
       struct OurVertexShaderOutput {
@@ -25,6 +25,8 @@ async function main() {
         // - In the vertex shader, it represents the position of the vertex in clip space. 
         // - In the fragment shader, it represents the pixel coordinate of the fragment.
         @builtin(position) position: vec4f, 
+        // inter-stage variable to pass the color to the fragment shader
+        @location(0) color: vec4f,  
       };
 
       @vertex fn vs(
@@ -36,23 +38,20 @@ async function main() {
           vec2f( 0.5, -0.5)   // bottom right
         );
 
+        var color = array<vec4f, 3>(
+          vec4f(1, 0, 0, 1), // red
+          vec4f(0, 1, 0, 1), // green
+          vec4f(0, 0, 1, 1), // blue
+        );
+ 
         var vsOutput: OurVertexShaderOutput;
         vsOutput.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+        vsOutput.color = color[vertexIndex];
         return vsOutput;
       }
  
       @fragment fn fs(fsInput: OurVertexShaderOutput) -> @location(0) vec4f {
-        let red = vec4f(1, 0, 0, 1);
-        let cyan = vec4f(0, 1, 1, 1);
-
-        // 'position' here is the pixel coordinate in fragment shader
-        // we divide the coordinate by 8 to make a grid of 8x8 pixels (cell size = 8x8 pixels)
-        let grid = vec2u(fsInput.position.xy) / 8;
-        let checker = (grid.x + grid.y) % 2 == 1;
-        
-        // draw a checkerboard
-        // API: select(falseValue, trueValue, condition)
-        return select(red, cyan, checker);
+        return fsInput.color;
       }
     `,
   });
