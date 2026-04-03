@@ -33,21 +33,14 @@ async function main() {
   const module = device.createShaderModule({
     label: "our hardcoded red triangle shaders",
     code: /* wgsl */ `
-      // A struct to hold uniform values that won't change
       struct OurStruct {
         color: vec4f,
-        // scale: vec2f,  // scale is updated every draw call, better put in another buffer
+        scale: vec2f,
         offset: vec2f,
       };
 
-      // A struct to hold changeable uniform values
-      struct OtherStruct {
-        scale: vec2f,
-      };
-
       @group(0) @binding(0) var<uniform> ourStruct: OurStruct;
-      @group(0) @binding(1) var<uniform> otherStruct: OtherStruct;
-      
+
       @vertex fn vs(
         @builtin(vertex_index) vertexIndex : u32
       ) -> @builtin(position) vec4f {
@@ -58,7 +51,7 @@ async function main() {
         );
  
         return vec4f(
-          pos[vertexIndex] * otherStruct.scale + ourStruct.offset, 0.0, 1.0);
+          pos[vertexIndex] * ourStruct.scale + ourStruct.offset, 0.0, 1.0);
       }
  
       @fragment fn fs() -> @location(0) vec4f {
@@ -82,58 +75,41 @@ async function main() {
     },
   });
 
-  // create 2 buffers for the uniform values
-  const staticUniformBufferSize =
+  // Create a buffer for uniform data
+  const uniformBufferSize =
     4 * 4 + // color is 4 32bit floats (4bytes each)
-    2 * 4 + // offset is 2 32bit floats (4bytes each)
-    2 * 4; // padding
-  const uniformBufferSize = 2 * 4; // scale is 2 32bit floats (4bytes each)
+    2 * 4 + // scale is 2 32bit floats (4bytes each)
+    2 * 4; // offset is 2 32bit floats (4bytes each)
 
   // offsets to the various uniform values in float32 indices
   const kColorOffset = 0;
-  const kOffsetOffset = 4;
-
-  const kScaleOffset = 0;
+  const kScaleOffset = 4;
+  const kOffsetOffset = 6;
 
   const kNumObjects = 100;
   const objectInfos = [];
 
   // create buffers and bind groups for each object we want to draw
   for (let i = 0; i < kNumObjects; ++i) {
-    const staticUniformBuffer = device.createBuffer({
-      label: `static uniforms for obj: ${i}`,
-      size: staticUniformBufferSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    // These are only set once so set them now
-    {
-      const uniformValues = new Float32Array(staticUniformBufferSize / 4);
-      uniformValues.set([rand(), rand(), rand(), 1], kColorOffset); // set the color
-      uniformValues.set([rand(-0.9, 0.9), rand(-0.9, 0.9)], kOffsetOffset); // set the offset
-
-      // copy these values to the GPU
-      device.queue.writeBuffer(staticUniformBuffer, 0, uniformValues);
-    }
-
-    // create a typedarray to hold the values for the uniforms in JavaScript
-    // the 'uniformValues' and 'uniformBuffer' will hold the data that changes every draw call
-    // in this case -> 'scale'
-    const uniformValues = new Float32Array(uniformBufferSize / 4);
     const uniformBuffer = device.createBuffer({
-      label: `changing uniforms for obj: ${i}`,
+      label: `uniforms for obj: ${i}`,
       size: uniformBufferSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+
+    // create a typedarray to hold the values for the uniforms in JavaScript
+    const uniformValues = new Float32Array(uniformBufferSize / 4);
+    uniformValues.set([rand(), rand(), rand(), 1], kColorOffset); // set the color
+    uniformValues.set([rand(-0.9, 0.9), rand(-0.9, 0.9)], kOffsetOffset); // set the offset
 
     const bindGroup = device.createBindGroup({
       label: `bind group for obj: ${i}`,
       layout: pipeline.getBindGroupLayout(0), // corresponds to @group(0) in shader
       entries: [
-        // @binding(0) in shader
-        { binding: 0, resource: staticUniformBuffer },
-        // @binding(1) in shader
-        { binding: 1, resource: uniformBuffer },
+        {
+          binding: 0, // corresponds to @binding(0) in shader
+          resource: uniformBuffer,
+        },
       ],
     });
 
