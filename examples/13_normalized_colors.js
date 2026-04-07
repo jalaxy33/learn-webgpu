@@ -19,8 +19,8 @@ function createCircleVertices({
   startAngle = 0,
   endAngle = Math.PI * 2,
 } = {}) {
-  // 2 vertices at each subdivision, + 1 to wrap around the circle.
-  const numVertices = (numSubdivisions + 1) * 2;
+  // 2 triangles per subdivision, 3 verts per tri`
+  const numVertices = numSubdivisions * 3 * 2;
   // 2 32-bit values for position (xy) and 1 32-bit value for color (rgb_)
   // The 32-bit color value will be written/read as 4 8-bit values
   const vertexData = new Float32Array(numVertices * (2 + 1));
@@ -43,48 +43,35 @@ function createCircleVertices({
 
   // 2 triangles per subdivision
   //
-  // 0  2  4  6  8 ...
-  //
-  // 1  3  5  7  9 ...
-  for (let i = 0; i <= numSubdivisions; ++i) {
-    const angle =
-      startAngle + ((i + 0) * (endAngle - startAngle)) / numSubdivisions;
-
-    const c1 = Math.cos(angle);
-    const s1 = Math.sin(angle);
-
-    addVertex(c1 * radius, s1 * radius, ...outerColor);
-    addVertex(c1 * innerRadius, s1 * innerRadius, ...innerColor);
-  }
-
-  const indexData = new Uint32Array(numSubdivisions * 6);
-  let ndx = 0;
-
-  // 1st tri  2nd tri  3rd tri  4th tri
-  // 0 1 2    2 1 3    2 3 4    4 3 5
-  //
-  // 0--2        2     2--4        4  .....
-  // | /        /|     | /        /|
-  // |/        / |     |/        / |
-  // 1        1--3     3        3--5  .....
+  // 0--1 4
+  // | / /|
+  // |/ / |
+  // 2 3--5
   for (let i = 0; i < numSubdivisions; ++i) {
-    const ndxOffset = i * 2;
+    const angle1 =
+      startAngle + ((i + 0) * (endAngle - startAngle)) / numSubdivisions;
+    const angle2 =
+      startAngle + ((i + 1) * (endAngle - startAngle)) / numSubdivisions;
+
+    const c1 = Math.cos(angle1);
+    const s1 = Math.sin(angle1);
+    const c2 = Math.cos(angle2);
+    const s2 = Math.sin(angle2);
 
     // first triangle
-    indexData[ndx++] = ndxOffset;
-    indexData[ndx++] = ndxOffset + 1;
-    indexData[ndx++] = ndxOffset + 2;
+    addVertex(c1 * radius, s1 * radius, ...outerColor);
+    addVertex(c2 * radius, s2 * radius, ...outerColor);
+    addVertex(c1 * innerRadius, s1 * innerRadius, ...innerColor);
 
     // second triangle
-    indexData[ndx++] = ndxOffset + 2;
-    indexData[ndx++] = ndxOffset + 1;
-    indexData[ndx++] = ndxOffset + 3;
+    addVertex(c1 * innerRadius, s1 * innerRadius, ...innerColor);
+    addVertex(c2 * radius, s2 * radius, ...outerColor);
+    addVertex(c2 * innerRadius, s2 * innerRadius, ...innerColor);
   }
 
   return {
     vertexData,
-    indexData,
-    numVertices: indexData.length,
+    numVertices,
   };
 }
 
@@ -242,27 +229,17 @@ async function main() {
   // a typed array we can use to update the changingVertexBuffer
   const vertexValues = new Float32Array(changingVertexBufferSize / 4);
 
-  // Create shapes
-  const { vertexData, indexData, numVertices } = createCircleVertices({
+  // Create a vertex buffer
+  const { vertexData, numVertices } = createCircleVertices({
     radius: 0.5,
     innerRadius: 0.25,
   });
-
-  // Create vertex buffer
   const vertexBuffer = device.createBuffer({
     label: "vertex buffer vertices",
     size: vertexData.byteLength,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
   device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-
-  // Create index buffer
-  const indexBuffer = device.createBuffer({
-    label: 'index buffer',
-    size: indexData.byteLength,
-    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(indexBuffer, 0, indexData);
 
   // Prepare a render pass descriptor
   const renderPassDescriptor = {
@@ -294,7 +271,6 @@ async function main() {
     pass.setVertexBuffer(0, vertexBuffer); // #0 element of pipeline
     pass.setVertexBuffer(1, staticVertexBuffer); // #1
     pass.setVertexBuffer(2, changingVertexBuffer); // #2
-    pass.setIndexBuffer(indexBuffer, 'uint32');
 
     // Set the uniform values in our JavaScript side Float32Array
     const aspect = canvas.width / canvas.height;
@@ -308,7 +284,7 @@ async function main() {
     // upload all scales at once
     device.queue.writeBuffer(changingVertexBuffer, 0, vertexValues);
 
-    pass.drawIndexed(numVertices, kNumObjects);  // use 'drawIndexed' instead of 'draw'
+    pass.draw(numVertices, kNumObjects);
     pass.end();
 
     const commandBuffer = encoder.finish();
