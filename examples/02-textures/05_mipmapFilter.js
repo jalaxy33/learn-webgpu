@@ -79,187 +79,153 @@ async function main() {
     },
   });
 
-  const numMipLevels = (...sizes) => {
-    const maxSize = Math.max(...sizes);
-    return (1 + Math.log2(maxSize)) | 0;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const mix = (a, b, t) => a.map((v, i) => lerp(v, b[i], t));
+  const bilinearFilter = (tl, tr, bl, br, t1, t2) => {
+    const t = mix(tl, tr, t1);
+    const b = mix(bl, br, t1);
+    return mix(t, b, t2);
   };
 
-  async function loadImageBitmap(url) {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return await createImageBitmap(blob, {
-      colorSpaceConversion: "none", // tell the browser not to apply any color space
-    });
-  }
+  // create mipmap on CPU
+  const createNextMipLevelRgba8Unorm = ({
+    data: src,
+    width: srcWidth,
+    height: srcHeight,
+  }) => {
+    // compute the size of the next mip
+    const dstWidth = Math.max(1, (srcWidth / 2) | 0);
+    const dstHeight = Math.max(1, (srcHeight / 2) | 0);
+    const dst = new Uint8Array(dstWidth * dstHeight * 4);
 
-  function copySourceToTexture(device, texture, source, { flipY } = {}) {
-    device.queue.copyExternalImageToTexture(
-      { source, flipY },
-      { texture },
-      { width: source.width, height: source.height },
-    );
-
-    if (texture.mipLevelCount > 1) {
-      generateMips(device, texture);
-    }
-  }
-
-  function createTextureFromSource(device, source, options = {}) {
-    const texture = device.createTexture({
-      format: "rgba8unorm",
-      mipLevelCount: options.mips
-        ? numMipLevels(source.width, source.height)
-        : 1,
-      size: [source.width, source.height],
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    copySourceToTexture(device, texture, source, options);
-    return texture;
-  }
-
-  async function createTextureFromImage(device, url, options) {
-    const imgBitmap = await loadImageBitmap(url);
-    return createTextureFromSource(device, imgBitmap, options);
-  }
-
-  const generateMips = (() => {
-    let sampler;
-    let module;
-    const pipelineByFormat = {};
-
-    return function generateMips(device, texture) {
-      if (!module) {
-        module = device.createShaderModule({
-          label: "textured quad shaders for mip level generation",
-          code: /* wgsl */ `
-            struct VSOutput {
-              @builtin(position) position: vec4f,
-              @location(0) texcoord: vec2f,
-            };
- 
-            @vertex fn vs(
-              @builtin(vertex_index) vertexIndex : u32
-            ) -> VSOutput {
-              let pos = array(
-                // 1st triangle
-                vec2f( 0.0,  0.0),  // center
-                vec2f( 1.0,  0.0),  // right, center
-                vec2f( 0.0,  1.0),  // center, top
- 
-                // 2nd triangle
-                vec2f( 0.0,  1.0),  // center, top
-                vec2f( 1.0,  0.0),  // right, center
-                vec2f( 1.0,  1.0),  // right, top
-              );
- 
-              var vsOutput: VSOutput;
-              let xy = pos[vertexIndex];
-
-              // cover the whole area rather than just the hardcoded top right corner
-              vsOutput.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);
-              vsOutput.texcoord = vec2f(xy.x, 1.0 - xy.y);
-              return vsOutput;
-            }
- 
-            @group(0) @binding(0) var ourSampler: sampler;
-            @group(0) @binding(1) var ourTexture: texture_2d<f32>;
- 
-            @fragment fn fs(fsInput: VSOutput) -> @location(0) vec4f {
-              return textureSample(ourTexture, ourSampler, fsInput.texcoord);
-            }
-          `,
-        });
-
-        sampler = device.createSampler({
-          minFilter: "linear",
-        });
-      }
-
-      if (!pipelineByFormat[texture.format]) {
-        pipelineByFormat[texture.format] = device.createRenderPipeline({
-          label: "mip level generator pipeline",
-          layout: "auto",
-          vertex: {
-            module,
-          },
-          fragment: {
-            module,
-            targets: [{ format: texture.format }],
-          },
-        });
-      }
-      const pipeline = pipelineByFormat[texture.format];
-
-      const encoder = device.createCommandEncoder({
-        label: "mip gen encoder",
-      });
-
-      for (
-        let baseMipLevel = 1;
-        baseMipLevel < texture.mipLevelCount;
-        ++baseMipLevel
-      ) {
-        const bindGroup = device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: sampler },
-            {
-              binding: 1,
-              // With parameters, createView lets you select a subset of the texture.
-              resource: texture.createView({
-                baseMipLevel: baseMipLevel - 1,
-                mipLevelCount: 1,
-              }),
-            },
-          ],
-        });
-
-        const renderPassDescriptor = {
-          label: "our basic canvas renderPass",
-          colorAttachments: [
-            {
-              view: texture.createView({
-                baseMipLevel,
-                mipLevelCount: 1,
-              }),
-              loadOp: "clear",
-              storeOp: "store",
-            },
-          ],
-        };
-
-        const pass = encoder.beginRenderPass(renderPassDescriptor);
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(6); // call our vertex shader 6 times
-        pass.end();
-      }
-      const commandBuffer = encoder.finish();
-      device.queue.submit([commandBuffer]);
+    const getSrcPixel = (x, y) => {
+      const offset = (y * srcWidth + x) * 4;
+      return src.subarray(offset, offset + 4);
     };
-  })();
 
-  // Load images and copy it to textures
-  const textures = await Promise.all([
-    await createTextureFromImage(
-      device,
-      "https://webgpufundamentals.org/webgpu/resources/images/f-texture.png",
-      { mips: true, flipY: false },
-    ),
-    await createTextureFromImage(
-      device,
-      "https://webgpufundamentals.org/webgpu/resources/images/coins.jpg",
-      { mips: true },
-    ),
-    await createTextureFromImage(
-      device,
-      "https://webgpufundamentals.org/webgpu/resources/images/Granite_paving_tileable_512x512.jpeg",
-      { mips: true },
-    ),
-  ]);
+    for (let y = 0; y < dstHeight; ++y) {
+      for (let x = 0; x < dstWidth; ++x) {
+        // compute texcoord of the center of the destination texel
+        const u = (x + 0.5) / dstWidth;
+        const v = (y + 0.5) / dstHeight;
+
+        // compute the same texcoord in the source - 0.5 a pixel
+        const au = u * srcWidth - 0.5;
+        const av = v * srcHeight - 0.5;
+
+        // compute the src top left texel coord (not texcoord)
+        const tx = au | 0;
+        const ty = av | 0;
+
+        // compute the mix amounts between pixels
+        const t1 = au % 1;
+        const t2 = av % 1;
+
+        // get the 4 pixels
+        const tl = getSrcPixel(tx, ty);
+        const tr = getSrcPixel(tx + 1, ty);
+        const bl = getSrcPixel(tx, ty + 1);
+        const br = getSrcPixel(tx + 1, ty + 1);
+
+        // copy the "sampled" result into the dest.
+        const dstOffset = (y * dstWidth + x) * 4;
+        dst.set(bilinearFilter(tl, tr, bl, br, t1, t2), dstOffset);
+      }
+    }
+    return { data: dst, width: dstWidth, height: dstHeight };
+  };
+
+  const generateMips = (src, srcWidth) => {
+    const srcHeight = src.length / 4 / srcWidth;
+
+    // populate with first mip level (base level)
+    let mip = { data: src, width: srcWidth, height: srcHeight };
+    const mips = [mip];
+
+    while (mip.width > 1 || mip.height > 1) {
+      mip = createNextMipLevelRgba8Unorm(mip);
+      mips.push(mip);
+    }
+    return mips;
+  };
+
+  const createBlendedMipmap = () => {
+    const w = [255, 255, 255, 255];
+    const r = [255, 0, 0, 255];
+    const b = [0, 28, 116, 255];
+    const y = [255, 231, 0, 255];
+    const g = [58, 181, 75, 255];
+    const a = [38, 123, 167, 255];
+    // prettier-ignore
+    const data = new Uint8Array([
+      w, r, r, r, r, r, r, a, a, r, r, r, r, r, r, w, 
+      w, w, r, r, r, r, r, a, a, r, r, r, r, r, w, w,
+      w, w, w, r, r, r, r, a, a, r, r, r, r, w, w, w,
+      w, w, w, w, r, r, r, a, a, r, r, r, w, w, w, w,
+      w, w, w, w, w, r, r, a, a, r, r, w, w, w, w, w,
+      w, w, w, w, w, w, r, a, a, r, w, w, w, w, w, w,
+      w, w, w, w, w, w, w, a, a, w, w, w, w, w, w, w,
+      b, b, b, b, b, b, b, b, a, y, y, y, y, y, y, y,
+      b, b, b, b, b, b, b, g, y, y, y, y, y, y, y, y,
+      w, w, w, w, w, w, w, g, g, w, w, w, w, w, w, w,
+      w, w, w, w, w, w, r, g, g, r, w, w, w, w, w, w,
+      w, w, w, w, w, r, r, g, g, r, r, w, w, w, w, w,
+      w, w, w, w, r, r, r, g, g, r, r, r, w, w, w, w,
+      w, w, w, r, r, r, r, g, g, r, r, r, r, w, w, w,
+      w, w, r, r, r, r, r, g, g, r, r, r, r, r, w, w,
+      w, r, r, r, r, r, r, g, g, r, r, r, r, r, r, w,
+    ].flat());
+    return generateMips(data, 16);
+  };
+
+  const createCheckedMipmap = () => {
+    const ctx = document
+      .createElement("canvas")
+      .getContext("2d", { willReadFrequently: true });
+    const levels = [
+      { size: 64, color: "rgb(128,0,255)" },
+      { size: 32, color: "rgb(0,255,0)" },
+      { size: 16, color: "rgb(255,0,0)" },
+      { size: 8, color: "rgb(255,255,0)" },
+      { size: 4, color: "rgb(0,0,255)" },
+      { size: 2, color: "rgb(0,255,255)" },
+      { size: 1, color: "rgb(255,0,255)" },
+    ];
+    return levels.map(({ size, color }, i) => {
+      ctx.canvas.width = size;
+      ctx.canvas.height = size;
+      ctx.fillStyle = i & 1 ? "#000" : "#fff";
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, size / 2, size / 2);
+      ctx.fillRect(size / 2, size / 2, size / 2, size / 2);
+      return ctx.getImageData(0, 0, size, size);
+    });
+  };
+
+  const createTextureWithMips = (mips, label) => {
+    const texture = device.createTexture({
+      label,
+      size: [mips[0].width, mips[0].height],
+      mipLevelCount: mips.length,
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    mips.forEach(({ data, width, height }, mipLevel) => {
+      device.queue.writeTexture(
+        { texture, mipLevel },
+        data,
+        { bytesPerRow: width * 4 },
+        { width, height },
+      );
+    });
+    return texture;
+  };
+
+  const textures = [
+    createTextureWithMips(createBlendedMipmap(), "blended"),
+    createTextureWithMips(createCheckedMipmap(), "checker"),
+  ];
 
   // offsets to the various uniform values in float32 indices
   const kMatrixOffset = 0;
