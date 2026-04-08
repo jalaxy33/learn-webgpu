@@ -92,13 +92,20 @@ async function main() {
     });
   }
 
+  function getSourceSize(source) {
+    return [
+      source.videoWidth || source.width,
+      source.videoHeight || source.height,
+    ];
+  }
+
   function copySourceToTexture(device, texture, source, { flipY } = {}) {
     // copyExternalImageToTexture copy data to mip level 0,
     // but the rest of the mip levels won't be filled in until we call generateMips.
     device.queue.copyExternalImageToTexture(
       { source, flipY },
       { texture },
-      { width: source.width, height: source.height },
+      getSourceSize(source),
     );
 
     if (texture.mipLevelCount > 1) {
@@ -107,12 +114,11 @@ async function main() {
   }
 
   function createTextureFromSource(device, source, options = {}) {
+    const size = getSourceSize(source);
     const texture = device.createTexture({
       format: "rgba8unorm",
-      mipLevelCount: options.mips
-        ? numMipLevels(source.width, source.height)
-        : 1,
-      size: [source.width, source.height],
+      mipLevelCount: options.mips ? numMipLevels(...size) : 1,
+      size,
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_DST |
@@ -245,24 +251,49 @@ async function main() {
     };
   })();
 
+  function startPlayingAndWaitForVideo(video) {
+    return new Promise((resolve, reject) => {
+      video.addEventListener("error", reject);
+      if ("requestVideoFrameCallback" in video) {
+        video.requestVideoFrameCallback(resolve);
+      } else {
+        const timeWatcher = () => {
+          if (video.currentTime > 0) {
+            resolve();
+          } else {
+            requestAnimationFrame(timeWatcher);
+          }
+        };
+        timeWatcher();
+      }
+      video.play().catch(reject);
+    });
+  }
+
+  const video = document.createElement("video");
+  video.muted = true;
+  video.loop = true;
+  video.preload = "auto";
+  requestCORSIfNotSameOrigin(
+    video,
+    "https://webgpufundamentals.org/webgpu/resources/videos/Golden_retriever_swimming_the_doggy_paddle-360-no-audio.webm",
+  );
+  video.src =
+    "https://webgpufundamentals.org/webgpu/resources/videos/Golden_retriever_swimming_the_doggy_paddle-360-no-audio.webm";
+  await startPlayingAndWaitForVideo(video);
+
+  canvas.addEventListener("click", () => {
+    if (video.paused) {
+      video.play();
+    } else {
+      video.pause();
+    }
+  });
+
+  const texture = createTextureFromSource(device, video, { mips: true });
+
   // Load images and copy it to textures
-  const textures = await Promise.all([
-    await createTextureFromImage(
-      device,
-      "https://webgpufundamentals.org/webgpu/resources/images/f-texture.png",
-      { mips: true, flipY: false },
-    ),
-    await createTextureFromImage(
-      device,
-      "https://webgpufundamentals.org/webgpu/resources/images/coins.jpg",
-      { mips: true },
-    ),
-    await createTextureFromImage(
-      device,
-      "https://webgpufundamentals.org/webgpu/resources/images/Granite_paving_tileable_512x512.jpeg",
-      { mips: true },
-    ),
-  ]);
+  const textures = [texture];
 
   // offsets to the various uniform values in float32 indices
   const kMatrixOffset = 0;
@@ -326,6 +357,8 @@ async function main() {
 
   // render pass
   function render() {
+    copySourceToTexture(device, texture, video);
+
     const fov = (60 * Math.PI) / 180; // 60 degrees in radians
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const zNear = 1;
@@ -384,7 +417,10 @@ async function main() {
 
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
+
+    requestAnimationFrame(render);
   }
+  requestAnimationFrame(render);
 
   // re-render when the canvas resizes
   const observer = new ResizeObserver((entries) => {
@@ -400,7 +436,6 @@ async function main() {
         1,
         Math.min(height, device.limits.maxTextureDimension2D),
       );
-      render();
     }
   });
   observer.observe(canvas);
@@ -408,7 +443,6 @@ async function main() {
   // click to change texture
   canvas.addEventListener("click", () => {
     texNdx = (texNdx + 1) % textures.length;
-    render();
   });
 }
 
@@ -418,3 +452,14 @@ function fail(msg) {
 }
 
 main();
+
+// This is needed if the images are not on the same domain
+// NOTE: The server providing the images must give CORS permissions
+// in order to be able to use the image with WebGPU. Most sites
+// do NOT give permission.
+// See: https://webgpufundamentals.org/webgpu/lessons/webgpu-cors-permission.html
+function requestCORSIfNotSameOrigin(img, url) {
+  if (new URL(url, window.location.href).origin !== window.location.origin) {
+    img.crossOrigin = "";
+  }
+}
