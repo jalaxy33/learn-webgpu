@@ -13,12 +13,31 @@
         display: block; /* make the canvas act like a block   */
         width: 100%; /* make the canvas fill its container */
         height: 100%;
+        /* checkered background */
+        /* background-color: #404040;
+        background-image:
+          linear-gradient(45deg, #808080 25%, transparent 25%),
+          linear-gradient(-45deg, #808080 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #808080 75%),
+          linear-gradient(-45deg, transparent 75%, #808080 75%);
+        background-size: 32px 32px;
+        background-position: 0 0, 0 16px, 16px -16px, -16px 0px; */
+      }
+      #info {
+        position: absolute;
+        top: 0;
+        left: 0;
+        margin: 0;
+        padding: 0.5em;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
       }
     </style>
     <title>My App</title>
   </head>
   <body>
     <canvas></canvas>
+    <pre id="info"></pre>
     <script type="module" src="main.js"></script>
   </body>
 </html>

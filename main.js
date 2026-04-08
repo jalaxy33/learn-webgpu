@@ -1,53 +1,87 @@
 import GUI from "https://webgpufundamentals.org/3rdparty/muigui-0.x.module.js";
-import { mat4 } from "https://webgpufundamentals.org/3rdparty/wgpu-matrix.module.js";
 
-function createCubeVertices() {
-  // prettier-ignore
-  const vertexData = new Float32Array([
-     //  position   |  texture coordinate
-     //-------------+----------------------
-     // front face     select the top left image
-    -1,  1,  1,        0   , 0  ,
-    -1, -1,  1,        0   , 0.5,
-     1,  1,  1,        0.25, 0  ,
-     1, -1,  1,        0.25, 0.5,
-     // right face     select the top middle image
-     1,  1, -1,        0.25, 0  ,
-     1,  1,  1,        0.5 , 0  ,
-     1, -1, -1,        0.25, 0.5,
-     1, -1,  1,        0.5 , 0.5,
-     // back face      select to top right image
-     1,  1, -1,        0.5 , 0  ,
-     1, -1, -1,        0.5 , 0.5,
-    -1,  1, -1,        0.75, 0  ,
-    -1, -1, -1,        0.75, 0.5,
-    // left face       select the bottom left image
-    -1,  1,  1,        0   , 0.5,
-    -1,  1, -1,        0.25, 0.5,
-    -1, -1,  1,        0   , 1  ,
-    -1, -1, -1,        0.25, 1  ,
-    // bottom face     select the bottom middle image
-     1, -1,  1,        0.25, 0.5,
-    -1, -1,  1,        0.5 , 0.5,
-     1, -1, -1,        0.25, 1  ,
-    -1, -1, -1,        0.5 , 1  ,
-    // top face        select the bottom right image
-    -1,  1,  1,        0.5 , 0.5,
-     1,  1,  1,        0.75, 0.5,
-    -1,  1, -1,        0.5 , 1  ,
-     1,  1, -1,        0.75, 1  ,
- 
-  ]);
+// A random number between [min and max)
+// With 1 argument it will be [0 to min)
+// With no arguments it will be [0 to 1)
+const rand = (min, max) => {
+  if (min === undefined) {
+    min = 0;
+    max = 1;
+  } else if (max === undefined) {
+    max = min;
+    min = 0;
+  }
+  return min + Math.random() * (max - min);
+};
 
-  // prettier-ignore
-  const indexData = new Uint16Array([
-     0,  1,  2,  2,  1,  3,  // front
-     4,  5,  6,  6,  5,  7,  // right
-     8,  9, 10, 10,  9, 11,  // back
-    12, 13, 14, 14, 13, 15,  // left
-    16, 17, 18, 18, 17, 19,  // bottom
-    20, 21, 22, 22, 21, 23,  // top
-  ]);
+function createCircleVertices({
+  radius = 1,
+  numSubdivisions = 24,
+  innerRadius = 0,
+  startAngle = 0,
+  endAngle = Math.PI * 2,
+} = {}) {
+  // 2 vertices at each subdivision, + 1 to wrap around the circle.
+  const numVertices = (numSubdivisions + 1) * 2;
+  // 2 32-bit values for position (xy) and 1 32-bit value for color (rgb_)
+  // The 32-bit color value will be written/read as 4 8-bit values
+  const vertexData = new Float32Array(numVertices * (2 + 1));
+  const colorData = new Uint8Array(vertexData.buffer);
+
+  let offset = 0;
+  let colorOffset = 8;
+  const addVertex = (x, y, r, g, b) => {
+    vertexData[offset++] = x;
+    vertexData[offset++] = y;
+    offset += 1; // skip the color
+    colorData[colorOffset++] = r * 255;
+    colorData[colorOffset++] = g * 255;
+    colorData[colorOffset++] = b * 255;
+    colorOffset += 9; // skip extra byte and the position
+  };
+
+  const innerColor = [1, 1, 1];
+  const outerColor = [0.1, 0.1, 0.1];
+
+  // 2 triangles per subdivision
+  //
+  // 0  2  4  6  8 ...
+  //
+  // 1  3  5  7  9 ...
+  for (let i = 0; i <= numSubdivisions; ++i) {
+    const angle =
+      startAngle + ((i + 0) * (endAngle - startAngle)) / numSubdivisions;
+
+    const c1 = Math.cos(angle);
+    const s1 = Math.sin(angle);
+
+    addVertex(c1 * radius, s1 * radius, ...outerColor);
+    addVertex(c1 * innerRadius, s1 * innerRadius, ...innerColor);
+  }
+
+  const indexData = new Uint32Array(numSubdivisions * 6);
+  let ndx = 0;
+
+  // 1st tri  2nd tri  3rd tri  4th tri
+  // 0 1 2    2 1 3    2 3 4    4 3 5
+  //
+  // 0--2        2     2--4        4  .....
+  // | /        /|     | /        /|
+  // |/        / |     |/        / |
+  // 1        1--3     3        3--5  .....
+  for (let i = 0; i < numSubdivisions; ++i) {
+    const ndxOffset = i * 2;
+
+    // first triangle
+    indexData[ndx++] = ndxOffset;
+    indexData[ndx++] = ndxOffset + 1;
+    indexData[ndx++] = ndxOffset + 2;
+
+    // second triangle
+    indexData[ndx++] = ndxOffset + 2;
+    indexData[ndx++] = ndxOffset + 1;
+    indexData[ndx++] = ndxOffset + 3;
+  }
 
   return {
     vertexData,
@@ -58,7 +92,10 @@ function createCubeVertices() {
 
 async function main() {
   const adapter = await navigator.gpu?.requestAdapter();
-  const device = await adapter?.requestDevice();
+  const canTimestamp = adapter.features.has("timestamp-query");
+  const device = await adapter?.requestDevice({
+    requiredFeatures: [...(canTimestamp ? ["timestamp-query"] : [])],
+  });
   if (!device) {
     fail("need a browser that supports WebGPU");
     return;
@@ -71,276 +108,146 @@ async function main() {
   context.configure({
     device,
     format: presentationFormat,
-    alphaMode: "premultiplied",
   });
 
+  // Create a shader module
   const module = device.createShaderModule({
+    label: "our hardcoded red triangle shaders",
     code: /* wgsl */ `
-        struct Uniforms {
-          matrix: mat4x4f,
-        };
+      // vertices of triangles 
+      //  pass values from vertex buffer
+      struct Vertex {
+        @location(0) position: vec2f,  
+        @location(1) color: vec4f,
+        @location(2) offset: vec2f,
+        @location(3) scale: vec2f,
+        @location(4) perVertexColor: vec4f,
+      };
 
-        struct Vertex {
-          @location(0) position: vec4f,
-          @location(1) texcoord: vec2f,
-        };
+      struct VSOutput {
+        @builtin(position) position: vec4f,
+        @location(0) color: vec4f,
+      }
 
-        struct VSOutput {
-          @builtin(position) position: vec4f,
-          @location(0) texcoord: vec2f,
-        };
-
-        @group(0) @binding(0) var<uniform> uni: Uniforms;
-        @group(0) @binding(1) var ourSampler: sampler;
-        @group(0) @binding(2) var ourTexture: texture_2d<f32>;
-
-        @vertex fn vs(vert: Vertex) -> VSOutput {
-          var vsOut: VSOutput;
-          vsOut.position = uni.matrix * vert.position;
-          vsOut.texcoord = vert.texcoord;
+      @vertex fn vs(
+        vert: Vertex, 
+      ) -> VSOutput {
+        var vsOut: VSOutput;
+        vsOut.position = vec4f(
+            vert.position * vert.scale + vert.offset, 0.0, 1.0);
+        vsOut.color = vert.color * vert.perVertexColor;
         return vsOut;
-        }
-
-        @fragment fn fs(vsOut: VSOutput) -> @location(0) vec4f {
-          return textureSample(ourTexture, ourSampler, vsOut.texcoord);
-        }
+      }
+ 
+      @fragment fn fs(vsOut: VSOutput) -> @location(0) vec4f {
+        return vsOut.color;
+      }
     `,
   });
 
+  // Create a render pipeline
   const pipeline = device.createRenderPipeline({
-    label: "2 attributes",
+    label: "our hardcoded red triangle pipeline",
     layout: "auto",
     vertex: {
+      //   entryPoint: "vs",
       module,
+      // [vertex buffer layouts]
       buffers: [
+        // #0: buffer for vertex attributes
         {
-          arrayStride: (3 + 2) * 4, // (3+2) floats 4 bytes each
+          arrayStride: 2 * 4 + 4, // 2 floats, 4 bytes each + 4 bytes
           attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" }, // position
-            { shaderLocation: 1, offset: 12, format: "float32x2" }, // texcoord
+            { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
+            { shaderLocation: 4, offset: 8, format: "unorm8x4" }, // perVertexColor
+          ],
+        },
+        // #1: buffer for static values
+        {
+          arrayStride: 4, // 4 bytes
+          stepMode: "instance", // step per instance (default: 'vertex')
+          attributes: [
+            { shaderLocation: 1, offset: 0, format: "unorm8x4" }, // color
+          ],
+        },
+        // #2: buffer for changing values
+        {
+          arrayStride: 4 * 4, // 4 floats, 4 bytes each
+          stepMode: "instance", // step per instance (default: 'vertex')
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x2" }, // offset
+            { shaderLocation: 3, offset: 8, format: "float32x2" }, // scale
           ],
         },
       ],
     },
     fragment: {
+      //   entryPoint: "fs",
       module,
       targets: [{ format: presentationFormat }],
     },
-    primitive: {
-      cullMode: "back",
-    },
-    depthStencil: {
-      depthWriteEnabled: true,
-      depthCompare: "less",
-      format: "depth24plus",
-    },
   });
 
-  const numMipLevels = (...sizes) => {
-    const maxSize = Math.max(...sizes);
-    return (1 + Math.log2(maxSize)) | 0;
-  };
+  const kNumObjects = 10000;
+  const objectInfos = [];
 
-  async function loadImageBitmap(url) {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return await createImageBitmap(blob, {
-      colorSpaceConversion: "none", // tell the browser not to apply any color space
-    });
-  }
+  // create 2 vertex buffers
+  const staticUnitSize = 4; // color is 4 bytes
+  const changingUnitSize =
+    2 * 4 + // offset is 2 32bit floats (4bytes each)
+    2 * 4; // scale is 2 32bit floats (4bytes each)
+  const staticVertexBufferSize = staticUnitSize * kNumObjects;
+  const changingVertexBufferSize = changingUnitSize * kNumObjects;
 
-  function copySourceToTexture(device, texture, source, { flipY } = {}) {
-    // copyExternalImageToTexture copy data to mip level 0,
-    // but the rest of the mip levels won't be filled in until we call generateMips.
-    device.queue.copyExternalImageToTexture(
-      { source, flipY },
-      { texture },
-      { width: source.width, height: source.height },
-    );
-
-    if (texture.mipLevelCount > 1) {
-      generateMips(device, texture);
-    }
-  }
-
-  function createTextureFromSource(device, source, options = {}) {
-    const texture = device.createTexture({
-      format: "rgba8unorm",
-      mipLevelCount: options.mips
-        ? numMipLevels(source.width, source.height)
-        : 1,
-      size: [source.width, source.height],
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    copySourceToTexture(device, texture, source, options);
-    return texture;
-  }
-
-  async function createTextureFromImage(device, url, options) {
-    const imgBitmap = await loadImageBitmap(url);
-    return createTextureFromSource(device, imgBitmap, options);
-  }
-
-  // Generate Mipmap manually on GPU
-  const generateMips = (() => {
-    let sampler;
-    let module;
-    const pipelineByFormat = {};
-
-    return function generateMips(device, texture) {
-      if (!module) {
-        module = device.createShaderModule({
-          label: "textured quad shaders for mip level generation",
-          code: /* wgsl */ `
-            struct VSOutput {
-              @builtin(position) position: vec4f,
-              @location(0) texcoord: vec2f,
-            };
- 
-            @vertex fn vs(
-              @builtin(vertex_index) vertexIndex : u32
-            ) -> VSOutput {
-              let pos = array(
-                // 1st triangle
-                vec2f( 0.0,  0.0),  // center
-                vec2f( 1.0,  0.0),  // right, center
-                vec2f( 0.0,  1.0),  // center, top
- 
-                // 2nd triangle
-                vec2f( 0.0,  1.0),  // center, top
-                vec2f( 1.0,  0.0),  // right, center
-                vec2f( 1.0,  1.0),  // right, top
-              );
- 
-              var vsOutput: VSOutput;
-              let xy = pos[vertexIndex];
-
-              // cover the whole area rather than just the hardcoded top right corner
-              vsOutput.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);
-              vsOutput.texcoord = vec2f(xy.x, 1.0 - xy.y);
-              return vsOutput;
-            }
- 
-            @group(0) @binding(0) var ourSampler: sampler;
-            @group(0) @binding(1) var ourTexture: texture_2d<f32>;
- 
-            @fragment fn fs(fsInput: VSOutput) -> @location(0) vec4f {
-              return textureSample(ourTexture, ourSampler, fsInput.texcoord);
-            }
-          `,
-        });
-
-        sampler = device.createSampler({
-          minFilter: "linear",
-          magFilter: "linear",
-        });
-      }
-
-      if (!pipelineByFormat[texture.format]) {
-        pipelineByFormat[texture.format] = device.createRenderPipeline({
-          label: "mip level generator pipeline",
-          layout: "auto",
-          vertex: {
-            module,
-          },
-          fragment: {
-            module,
-            targets: [{ format: texture.format }],
-          },
-        });
-      }
-      const pipeline = pipelineByFormat[texture.format];
-
-      const encoder = device.createCommandEncoder({
-        label: "mip gen encoder",
-      });
-
-      // start from mip level 1 since level 0 is already filled by copyExternalImageToTexture
-      for (
-        let baseMipLevel = 1;
-        baseMipLevel < texture.mipLevelCount;
-        ++baseMipLevel
-      ) {
-        const bindGroup = device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: sampler }, // bind the sampler
-            {
-              binding: 1,
-              resource: texture.createView({
-                baseMipLevel: baseMipLevel - 1, // bind the previous mip level as the source texture
-                mipLevelCount: 1,
-              }),
-            },
-          ],
-        });
-
-        const renderPassDescriptor = {
-          label: "our basic canvas renderPass",
-          colorAttachments: [
-            {
-              view: texture.createView({
-                baseMipLevel, // use current mip level as the render target for this pass
-                mipLevelCount: 1,
-              }),
-              loadOp: "clear",
-              storeOp: "store",
-            },
-          ],
-        };
-
-        const pass = encoder.beginRenderPass(renderPassDescriptor);
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(6); // call our vertex shader 6 times
-        pass.end();
-      }
-      const commandBuffer = encoder.finish();
-      device.queue.submit([commandBuffer]);
-    };
-  })();
-
-  // matrix
-  const uniformBufferSize = 16 * 4;
-  const uniformBuffer = device.createBuffer({
-    label: "uniforms",
-    size: uniformBufferSize,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  const staticVertexBuffer = device.createBuffer({
+    label: "static vertex for objects",
+    size: staticVertexBufferSize,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
 
-  const uniformValues = new Float32Array(uniformBufferSize / 4);
+  const changingVertexBuffer = device.createBuffer({
+    label: "changing vertex for objects",
+    size: changingVertexBufferSize,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
 
   // offsets to the various uniform values in float32 indices
-  const kMatrixOffset = 0;
+  const kColorOffset = 0;
 
-  const matrixValue = uniformValues.subarray(kMatrixOffset, kMatrixOffset + 16);
+  const kOffsetOffset = 0;
+  const kScaleOffset = 2;
 
-  const texture = await createTextureFromImage(
-    device,
-    "https://webgpufundamentals.org/webgpu/resources/images/noodles.jpg",
-    { mips: true, flipY: false },
-  );
+  {
+    const staticVertexValuesU8 = new Uint8Array(staticVertexBufferSize);
+    for (let i = 0; i < kNumObjects; ++i) {
+      const staticOffsetU8 = i * staticUnitSize;
 
-  const sampler = device.createSampler({
-    magFilter: "linear",
-    minFilter: "linear",
-    mipmapFilter: "linear",
+      // These are only set once so set them now
+      staticVertexValuesU8.set(
+        // set the color
+        [rand() * 255, rand() * 255, rand() * 255, 255],
+        staticOffsetU8 + kColorOffset,
+      );
+
+      objectInfos.push({
+        scale: rand(0.2, 0.5),
+        offset: [rand(-0.9, 0.9), rand(-0.9, 0.9)],
+        velocity: [rand(-0.1, 0.1), rand(-0.1, 0.1)],
+      });
+    }
+    device.queue.writeBuffer(staticVertexBuffer, 0, staticVertexValuesU8);
+  }
+
+  // a typed array we can use to update the changingVertexBuffer
+  const vertexValues = new Float32Array(changingVertexBufferSize / 4);
+
+  // Create shapes
+  const { vertexData, indexData, numVertices } = createCircleVertices({
+    radius: 0.5,
+    innerRadius: 0.25,
   });
 
-  const bindGroup = device.createBindGroup({
-    label: "bind group for object",
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: uniformBuffer },
-      { binding: 1, resource: sampler },
-      { binding: 2, resource: texture },
-    ],
-  });
-
-  const { vertexData, indexData, numVertices } = createCubeVertices();
+  // Create vertex buffer
   const vertexBuffer = device.createBuffer({
     label: "vertex buffer vertices",
     size: vertexData.byteLength,
@@ -348,6 +255,7 @@ async function main() {
   });
   device.queue.writeBuffer(vertexBuffer, 0, vertexData);
 
+  // Create index buffer
   const indexBuffer = device.createBuffer({
     label: "index buffer",
     size: indexData.byteLength,
@@ -355,104 +263,102 @@ async function main() {
   });
   device.queue.writeBuffer(indexBuffer, 0, indexData);
 
+  // Prepare a render pass descriptor
   const renderPassDescriptor = {
     label: "our basic canvas renderPass",
     colorAttachments: [
       {
         // view: <- to be filled out when we render
+        clearValue: [0.3, 0.3, 0.3, 1],
         loadOp: "clear",
         storeOp: "store",
       },
     ],
-    depthStencilAttachment: {
-      // view: <- to be filled out when we render
-      depthClearValue: 1.0,
-      depthLoadOp: "clear",
-      depthStoreOp: "store",
-    },
   };
 
-  const degToRad = (d) => (d * Math.PI) / 180;
+  const infoElem = document.querySelector("#info");
 
   const settings = {
-    rotation: [degToRad(20), degToRad(25), degToRad(0)],
-  };
-
-  const radToDegOptions = {
-    min: -360,
-    max: 360,
-    step: 1,
-    converters: GUI.converters.radToDeg,
+    numObjects: 100,
   };
 
   const gui = new GUI();
-  gui.onChange(render);
-  gui.add(settings.rotation, "0", radToDegOptions).name("rotation.x");
-  gui.add(settings.rotation, "1", radToDegOptions).name("rotation.y");
-  gui.add(settings.rotation, "2", radToDegOptions).name("rotation.z");
+  gui.add(settings, "numObjects", 0, kNumObjects, 1);
 
-  let depthTexture;
+  const euclideanModulo = (x, a) => x - a * Math.floor(x / a);
 
-  function render() {
+  let then = 0;
+
+  // render pass
+  function render(now) {
+    now *= 0.001; // convert to seconds
+    const deltaTime = now - then;
+    then = now;
+
+    const startTime = performance.now();
+
     // Get the current texture from the canvas context and
     // set it as the texture to render to.
-    const canvasTexture = context.getCurrentTexture();
-    renderPassDescriptor.colorAttachments[0].view = canvasTexture.createView();
+    renderPassDescriptor.colorAttachments[0].view = context
+      .getCurrentTexture()
+      .createView();
 
-    // If we don't have a depth texture OR if its size is different
-    // from the canvasTexture when make a new depth texture
-    if (
-      !depthTexture ||
-      depthTexture.width !== canvasTexture.width ||
-      depthTexture.height !== canvasTexture.height
-    ) {
-      if (depthTexture) {
-        depthTexture.destroy();
-      }
-      depthTexture = device.createTexture({
-        size: [canvasTexture.width, canvasTexture.height],
-        format: "depth24plus",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-      });
-    }
-    renderPassDescriptor.depthStencilAttachment.view =
-      depthTexture.createView();
+    // make a command encoder to start encoding commands
+    const encoder = device.createCommandEncoder({ label: "our encoder" });
 
-    const encoder = device.createCommandEncoder();
+    // make a render pass encoder to encode render specific commands
     const pass = encoder.beginRenderPass(renderPassDescriptor);
     pass.setPipeline(pipeline);
-    pass.setVertexBuffer(0, vertexBuffer);
-    pass.setIndexBuffer(indexBuffer, "uint16");
+    pass.setVertexBuffer(0, vertexBuffer); // #0 element of pipeline
+    pass.setVertexBuffer(1, staticVertexBuffer); // #1
+    pass.setVertexBuffer(2, changingVertexBuffer); // #2
+    pass.setIndexBuffer(indexBuffer, "uint32");
 
-    const aspect = canvas.clientWidth / canvas.clientHeight;
-    mat4.perspective(
-      (60 * Math.PI) / 180,
-      aspect,
-      0.1, // zNear
-      10, // zFar
-      matrixValue,
+    // Set the uniform values in our JavaScript side Float32Array
+    const aspect = canvas.width / canvas.height;
+
+    // set the scales for each object
+    for (let ndx = 0; ndx < settings.numObjects; ++ndx) {
+      const { scale, offset, velocity } = objectInfos[ndx];
+
+      // -1.5 to 1.5
+      offset[0] =
+        euclideanModulo(offset[0] + velocity[0] * deltaTime + 1.5, 3) - 1.5;
+      offset[1] =
+        euclideanModulo(offset[1] + velocity[1] * deltaTime + 1.5, 3) - 1.5;
+
+      const off = ndx * (changingUnitSize / 4);
+      vertexValues.set(offset, off + kOffsetOffset);
+      vertexValues.set([scale / aspect, scale], off + kScaleOffset);
+    }
+
+    // upload all offsets and scales at once
+    device.queue.writeBuffer(
+      changingVertexBuffer,
+      0,
+      vertexValues,
+      0,
+      (settings.numObjects * changingUnitSize) / 4,
     );
-    const view = mat4.lookAt(
-      [0, 1, 5], // camera position
-      [0, 0, 0], // target
-      [0, 1, 0], // up
-    );
-    mat4.multiply(matrixValue, view, matrixValue);
-    mat4.rotateX(matrixValue, settings.rotation[0], matrixValue);
-    mat4.rotateY(matrixValue, settings.rotation[1], matrixValue);
-    mat4.rotateZ(matrixValue, settings.rotation[2], matrixValue);
 
-    // upload the uniform values to the uniform buffer
-    device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
-    pass.setBindGroup(0, bindGroup);
-    pass.drawIndexed(numVertices);
-
+    pass.drawIndexed(numVertices, settings.numObjects); // use 'drawIndexed' instead of 'draw'
     pass.end();
 
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
-  }
 
+    const jsTime = performance.now() - startTime;
+
+    infoElem.textContent = `\
+fps: ${(1 / deltaTime).toFixed(1)}
+js: ${jsTime.toFixed(1)}ms
+`;
+
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  // re-render when the canvas resizes
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
       const canvas = entry.target;
@@ -466,14 +372,13 @@ async function main() {
         1,
         Math.min(height, device.limits.maxTextureDimension2D),
       );
-      // re-render
-      render();
     }
   });
   observer.observe(canvas);
 }
 
 function fail(msg) {
+  // eslint-disable-next-line no-alert
   alert(msg);
 }
 
