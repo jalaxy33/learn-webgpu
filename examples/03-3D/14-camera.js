@@ -375,22 +375,6 @@ const mat4 = {
   },
 
   // prettier-ignore
-  aim(eye, target, up, dst) {
-    dst = dst || new Float32Array(16);
- 
-    const zAxis = vec3.normalize(vec3.subtract(target, eye));
-    const xAxis = vec3.normalize(vec3.cross(up, zAxis));
-    const yAxis = vec3.normalize(vec3.cross(zAxis, xAxis));
- 
-    dst[ 0] = xAxis[0];  dst[ 1] = xAxis[1];  dst[ 2] = xAxis[2];  dst[ 3] = 0;
-    dst[ 4] = yAxis[0];  dst[ 5] = yAxis[1];  dst[ 6] = yAxis[2];  dst[ 7] = 0;
-    dst[ 8] = zAxis[0];  dst[ 9] = zAxis[1];  dst[10] = zAxis[2];  dst[11] = 0;
-    dst[12] = eye[0];    dst[13] = eye[1];    dst[14] = eye[2];    dst[15] = 1;
- 
-    return dst;
-  },
-
-  // prettier-ignore
   cameraAim(eye, target, up, dst) {
     dst = dst || new Float32Array(16);
  
@@ -570,7 +554,7 @@ async function main() {
     },
   });
 
-  const numFs = 5 * 5 + 1;
+  const numFs = 5;
   const objectInfos = [];
   for (let i = 0; i < numFs; ++i) {
     // matrix
@@ -636,8 +620,8 @@ async function main() {
   const radius = 200;
 
   const settings = {
-    target: [0, 200, 300],
-    targetAngle: 0,
+    fieldOfView: degToRad(100),
+    cameraAngle: 0,
   };
 
   const radToDegOptions = {
@@ -649,8 +633,12 @@ async function main() {
 
   const gui = new GUI();
   gui.onChange(render);
-  gui.add(settings.target, "1", -100, 300).name("target height");
-  gui.add(settings, "targetAngle", radToDegOptions).name("target angle");
+  gui.add(settings, "fieldOfView", {
+    min: 1,
+    max: 179,
+    converters: GUI.converters.radToDeg,
+  });
+  gui.add(settings, "cameraAngle", radToDegOptions);
 
   let depthTexture;
 
@@ -688,51 +676,40 @@ async function main() {
     pass.setPipeline(pipeline);
     pass.setVertexBuffer(0, vertexBuffer);
 
-    // update target X,Z based on angle
-    settings.target[0] = Math.cos(settings.targetAngle) * radius;
-    settings.target[2] = Math.sin(settings.targetAngle) * radius;
-
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const projection = mat4.perspective(
-      degToRad(60), // fieldOfView,
+      settings.fieldOfView,
       aspect,
       1, // zNear
       2000, // zFar
     );
 
-    const eye = [-500, 300, -500];
-    const target = [0, -100, 0];
+    // Compute the position of the first F
+    const fPosition = [radius, 0, 0];
+
+    // Use matrix math to compute a position on a circle where
+    // the camera is
+    const tempMatrix = mat4.rotationY(settings.cameraAngle);
+    mat4.translate(tempMatrix, [0, 0, radius * 1.5], tempMatrix);
+
+    // Get the camera's position from the matrix we computed
+    const eye = tempMatrix.slice(12, 15);
+
     const up = [0, 1, 0];
 
     // Compute a view matrix
-    const viewMatrix = mat4.lookAt(eye, target, up);
+    const viewMatrix = mat4.lookAt(eye, fPosition, up);
 
     // combine the view and projection matrixes
     const viewProjectionMatrix = mat4.multiply(projection, viewMatrix);
 
     objectInfos.forEach(
       ({ matrixValue, uniformBuffer, uniformValues, bindGroup }, i) => {
-        const deep = 5;
-        const across = 5;
-        if (i < 25) {
-          // compute grid positions
-          const gridX = i % across;
-          const gridZ = (i / across) | 0;
+        const angle = (i / numFs) * Math.PI * 2;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
 
-          // compute 0 to 1 positions
-          const u = gridX / (across - 1);
-          const v = gridZ / (deep - 1);
-
-          // center and spread out
-          const x = (u - 0.5) * across * 150;
-          const z = (v - 0.5) * deep * 150;
-
-          // aim this F from it's position toward the target F
-          const aimMatrix = mat4.aim([x, 0, z], settings.target, up);
-          mat4.multiply(viewProjectionMatrix, aimMatrix, matrixValue);
-        } else {
-          mat4.translate(viewProjectionMatrix, settings.target, matrixValue);
-        }
+        mat4.translate(viewProjectionMatrix, [x, 0, z], matrixValue);
 
         // upload the uniform values to the uniform buffer
         device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
