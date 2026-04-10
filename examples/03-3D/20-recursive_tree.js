@@ -57,55 +57,6 @@ function createCubeVertices() {
   };
 }
 
-// tip is at origin, base is below
-function createConeVertices({ radius = 1, height = 1, subdivisions = 6 } = {}) {
-  const positions = [];
-  const colors = [];
-
-  function addVertex(angle, radius, height, color) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    positions.push(c * radius, height, s * radius);
-    colors.push(...color);
-  }
-
-  for (let i = 0; i < subdivisions; ++i) {
-    const angle0 = ((i + 0) / subdivisions) * Math.PI * 2;
-    const angle1 = ((i + 1) / subdivisions) * Math.PI * 2;
-
-    const u = (i + 1) / subdivisions;
-    const color = [u * 128 + 127, 0, 0];
-
-    // add side
-    addVertex(angle0, 0, 0, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, radius, -height, color);
-
-    // add top
-    addVertex(angle0, radius, -height, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, 0, -height, color);
-  }
-
-  const numVertices = positions.length / 3;
-  const vertexData = new Float32Array(numVertices * 4); // xyz + color
-  const colorData = new Uint8Array(vertexData.buffer);
-
-  for (let i = 0; i < numVertices; ++i) {
-    const position = positions.slice(i * 3, i * 3 + 3);
-    vertexData.set(position, i * 4);
-
-    const color = colors.slice(i * 3, i * 3 + 3);
-    colorData.set(color, i * 16 + 12);
-    colorData[i * 16 + 15] = 255;
-  }
-
-  return {
-    vertexData,
-    numVertices,
-  };
-}
-
 const vec3 = {
   cross(a, b, dst) {
     dst = dst || new Float32Array(3);
@@ -145,16 +96,6 @@ const vec3 = {
       dst[1] = 0;
       dst[2] = 0;
     }
-
-    return dst;
-  },
-
-  getTranslation(m, dst) {
-    dst = dst || new Float32Array(3);
-
-    dst[0] = m[12];
-    dst[1] = m[13];
-    dst[2] = m[14];
 
     return dst;
   },
@@ -670,27 +611,13 @@ async function main() {
     };
   }
 
-  function createVertices({ vertexData, numVertices }, name) {
-    const vertexBuffer = device.createBuffer({
-      label: "${name}: vertex buffer vertices",
-      size: vertexData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-    return {
-      vertexBuffer,
-      numVertices,
-    };
-  }
-
-  const cubeVertices = createVertices(createCubeVertices(), "cube");
-  const ornamentVertices = createVertices(
-    createConeVertices({
-      radius: 20,
-      height: 60,
-    }),
-    "ornament",
-  );
+  const { vertexData, numVertices } = createCubeVertices();
+  const vertexBuffer = device.createBuffer({
+    label: "vertex buffer vertices",
+    size: vertexData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(vertexBuffer, 0, vertexData);
 
   // Prepare a render pass descriptor
   const renderPassDescriptor = {
@@ -754,9 +681,8 @@ async function main() {
 
   const stack = new MatrixStack();
 
-  function drawObject(ctx, vertices, matrix, color) {
+  function drawObject(ctx, matrix, color) {
     const { pass, viewProjectionMatrix } = ctx;
-    const { vertexBuffer, numVertices } = vertices;
     if (objectNdx === objectInfos.length) {
       objectInfos.push(createObjectInfo());
     }
@@ -769,7 +695,6 @@ async function main() {
     // upload the uniform values to the uniform buffer
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
-    pass.setVertexBuffer(0, vertexBuffer);
     pass.setBindGroup(0, bindGroup);
     pass.draw(numVertices);
   }
@@ -777,7 +702,7 @@ async function main() {
   function drawBranch(ctx) {
     const { stack } = ctx;
     stack.save().scale(kBranchSize).translate(kBranchPosition);
-    drawObject(ctx, cubeVertices, stack.get(), kWhite);
+    drawObject(ctx, stack.get(), kWhite);
     stack.restore();
   }
 
@@ -797,11 +722,6 @@ async function main() {
     if (treeDepth > 0) {
       drawTreeLevel(ctx, -1, treeDepth - 1);
       drawTreeLevel(ctx, +1, treeDepth - 1);
-    }
-
-    if (treeDepth === 0 && offset > 0) {
-      const position = vec3.getTranslation(stack.get());
-      drawObject(ctx, ornamentVertices, mat4.translation(position), kWhite);
     }
 
     stack.restore();
@@ -841,6 +761,7 @@ async function main() {
     // make a render pass encoder to encode render specific commands
     const pass = encoder.beginRenderPass(renderPassDescriptor);
     pass.setPipeline(pipeline);
+    pass.setVertexBuffer(0, vertexBuffer);
 
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const projection = mat4.perspective(

@@ -1,39 +1,72 @@
 import GUI from "https://webgpufundamentals.org/3rdparty/muigui-0.x.module.js";
 
 function createCubeVertices() {
-  // prettier-ignore
   const positions = [
     // left
-    0, 0,  0,
-    0, 0, -1,
-    0, 1,  0,
-    0, 1, -1,
+    0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 1, -1,
 
     // right
-    1, 0,  0,
-    1, 0, -1,
-    1, 1,  0,
-    1, 1, -1,
+    1, 0, 0, 1, 0, -1, 1, 1, 0, 1, 1, -1,
   ];
 
-  // prettier-ignore
   const indices = [
-    0,  2,  1,    2,  3,  1,   // left
-     4,  5,  6,    6,  5,  7,   // right
-     0,  4,  2,    2,  4,  6,   // front
-     1,  3,  5,    5,  3,  7,   // back
-     0,  1,  4,    4,  1,  5,   // bottom
-     2,  6,  3,    3,  6,  7,   // top
+    0,
+    2,
+    1,
+    2,
+    3,
+    1, // left
+    4,
+    5,
+    6,
+    6,
+    5,
+    7, // right
+    0,
+    4,
+    2,
+    2,
+    4,
+    6, // front
+    1,
+    3,
+    5,
+    5,
+    3,
+    7, // back
+    0,
+    1,
+    4,
+    4,
+    1,
+    5, // bottom
+    2,
+    6,
+    3,
+    3,
+    6,
+    7, // top
   ];
 
-  // prettier-ignore
   const quadColors = [
-      200,  70, 120,  // left column front
-      80,  70, 200,  // left column back
-      70, 200, 210,  // top
-    160, 160, 220,  // top rung right
-      90, 130, 110,  // top rung bottom
-    200, 200,  70,  // between top and middle rung
+    200,
+    70,
+    120, // left column front
+    80,
+    70,
+    200, // left column back
+    70,
+    200,
+    210, // top
+    160,
+    160,
+    220, // top rung right
+    90,
+    130,
+    110, // top rung bottom
+    200,
+    200,
+    70, // between top and middle rung
   ];
 
   const numVertices = indices.length;
@@ -47,55 +80,6 @@ function createCubeVertices() {
 
     const quadNdx = ((i / 6) | 0) * 3;
     const color = quadColors.slice(quadNdx, quadNdx + 3);
-    colorData.set(color, i * 16 + 12); // set RGB
-    colorData[i * 16 + 15] = 255; // set A
-  }
-
-  return {
-    vertexData,
-    numVertices,
-  };
-}
-
-// tip is at origin, base is below
-function createConeVertices({ radius = 1, height = 1, subdivisions = 6 } = {}) {
-  const positions = [];
-  const colors = [];
-
-  function addVertex(angle, radius, height, color) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    positions.push(c * radius, height, s * radius);
-    colors.push(...color);
-  }
-
-  for (let i = 0; i < subdivisions; ++i) {
-    const angle0 = ((i + 0) / subdivisions) * Math.PI * 2;
-    const angle1 = ((i + 1) / subdivisions) * Math.PI * 2;
-
-    const u = (i + 1) / subdivisions;
-    const color = [u * 128 + 127, 0, 0];
-
-    // add side
-    addVertex(angle0, 0, 0, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, radius, -height, color);
-
-    // add top
-    addVertex(angle0, radius, -height, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, 0, -height, color);
-  }
-
-  const numVertices = positions.length / 3;
-  const vertexData = new Float32Array(numVertices * 4); // xyz + color
-  const colorData = new Uint8Array(vertexData.buffer);
-
-  for (let i = 0; i < numVertices; ++i) {
-    const position = positions.slice(i * 3, i * 3 + 3);
-    vertexData.set(position, i * 4);
-
-    const color = colors.slice(i * 3, i * 3 + 3);
     colorData.set(color, i * 16 + 12);
     colorData[i * 16 + 15] = 255;
   }
@@ -148,19 +132,8 @@ const vec3 = {
 
     return dst;
   },
-
-  getTranslation(m, dst) {
-    dst = dst || new Float32Array(3);
-
-    dst[0] = m[12];
-    dst[1] = m[13];
-    dst[2] = m[14];
-
-    return dst;
-  },
 };
 
-// each mat3 is actually a 3x4 matrix (due to the memory layout of WebGPU)
 const mat4 = {
   copy(src, dst) {
     dst = dst || new Float32Array(16);
@@ -170,33 +143,7 @@ const mat4 = {
 
   projection(width, height, depth, dst) {
     // Note: This matrix flips the Y axis so that 0 is at the top.
-    return mat4.ortho(0, width, height, 0, depth / 2, -depth / 2, dst);
-  },
-
-  ortho(left, right, bottom, top, near, far, dst) {
-    dst = dst || new Float32Array(16);
-
-    dst[0] = 2 / (right - left);
-    dst[1] = 0;
-    dst[2] = 0;
-    dst[3] = 0;
-
-    dst[4] = 0;
-    dst[5] = 2 / (top - bottom);
-    dst[6] = 0;
-    dst[7] = 0;
-
-    dst[8] = 0;
-    dst[9] = 0;
-    dst[10] = 1 / (near - far);
-    dst[11] = 0;
-
-    dst[12] = (right + left) / (left - right);
-    dst[13] = (top + bottom) / (bottom - top);
-    dst[14] = near / (near - far);
-    dst[15] = 1;
-
-    return dst;
+    return mat4.ortho(0, width, height, 0, depth, -depth, dst);
   },
 
   perspective(fieldOfViewYInRadians, aspect, zNear, zFar, dst) {
@@ -228,13 +175,50 @@ const mat4 = {
     return dst;
   },
 
-  // prettier-ignore
+  ortho(left, right, bottom, top, near, far, dst) {
+    dst = dst || new Float32Array(16);
+
+    dst[0] = 2 / (right - left);
+    dst[1] = 0;
+    dst[2] = 0;
+    dst[3] = 0;
+
+    dst[4] = 0;
+    dst[5] = 2 / (top - bottom);
+    dst[6] = 0;
+    dst[7] = 0;
+
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = 1 / (near - far);
+    dst[11] = 0;
+
+    dst[12] = (right + left) / (left - right);
+    dst[13] = (top + bottom) / (bottom - top);
+    dst[14] = near / (near - far);
+    dst[15] = 1;
+
+    return dst;
+  },
+
   identity(dst) {
     dst = dst || new Float32Array(16);
-    dst[ 0] = 1;  dst[ 1] = 0;  dst[ 2] = 0;   dst[ 3] = 0;
-    dst[ 4] = 0;  dst[ 5] = 1;  dst[ 6] = 0;   dst[ 7] = 0;
-    dst[ 8] = 0;  dst[ 9] = 0;  dst[10] = 1;   dst[11] = 0;
-    dst[12] = 0;  dst[13] = 0;  dst[14] = 0;   dst[15] = 1;
+    dst[0] = 1;
+    dst[1] = 0;
+    dst[2] = 0;
+    dst[3] = 0;
+    dst[4] = 0;
+    dst[5] = 1;
+    dst[6] = 0;
+    dst[7] = 0;
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = 1;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
     return dst;
   },
 
@@ -296,10 +280,9 @@ const mat4 = {
     return dst;
   },
 
-  // prettier-ignore
   inverse(m, dst) {
     dst = dst || new Float32Array(16);
- 
+
     const m00 = m[0 * 4 + 0];
     const m01 = m[0 * 4 + 1];
     const m02 = m[0 * 4 + 2];
@@ -316,7 +299,7 @@ const mat4 = {
     const m31 = m[3 * 4 + 1];
     const m32 = m[3 * 4 + 2];
     const m33 = m[3 * 4 + 3];
- 
+
     const tmp0 = m22 * m33;
     const tmp1 = m32 * m23;
     const tmp2 = m12 * m33;
@@ -341,81 +324,163 @@ const mat4 = {
     const tmp21 = m20 * m01;
     const tmp22 = m00 * m11;
     const tmp23 = m10 * m01;
- 
-    const t0 = (tmp0 * m11 + tmp3 * m21 + tmp4 * m31) -
-               (tmp1 * m11 + tmp2 * m21 + tmp5 * m31);
-    const t1 = (tmp1 * m01 + tmp6 * m21 + tmp9 * m31) -
-               (tmp0 * m01 + tmp7 * m21 + tmp8 * m31);
-    const t2 = (tmp2 * m01 + tmp7 * m11 + tmp10 * m31) -
-               (tmp3 * m01 + tmp6 * m11 + tmp11 * m31);
-    const t3 = (tmp5 * m01 + tmp8 * m11 + tmp11 * m21) -
-               (tmp4 * m01 + tmp9 * m11 + tmp10 * m21);
- 
+
+    const t0 =
+      tmp0 * m11 +
+      tmp3 * m21 +
+      tmp4 * m31 -
+      (tmp1 * m11 + tmp2 * m21 + tmp5 * m31);
+    const t1 =
+      tmp1 * m01 +
+      tmp6 * m21 +
+      tmp9 * m31 -
+      (tmp0 * m01 + tmp7 * m21 + tmp8 * m31);
+    const t2 =
+      tmp2 * m01 +
+      tmp7 * m11 +
+      tmp10 * m31 -
+      (tmp3 * m01 + tmp6 * m11 + tmp11 * m31);
+    const t3 =
+      tmp5 * m01 +
+      tmp8 * m11 +
+      tmp11 * m21 -
+      (tmp4 * m01 + tmp9 * m11 + tmp10 * m21);
+
     const d = 1 / (m00 * t0 + m10 * t1 + m20 * t2 + m30 * t3);
- 
+
     dst[0] = d * t0;
     dst[1] = d * t1;
     dst[2] = d * t2;
     dst[3] = d * t3;
- 
-    dst[4] = d * ((tmp1 * m10 + tmp2 * m20 + tmp5 * m30) -
-                  (tmp0 * m10 + tmp3 * m20 + tmp4 * m30));
-    dst[5] = d * ((tmp0 * m00 + tmp7 * m20 + tmp8 * m30) -
-                  (tmp1 * m00 + tmp6 * m20 + tmp9 * m30));
-    dst[6] = d * ((tmp3 * m00 + tmp6 * m10 + tmp11 * m30) -
-                  (tmp2 * m00 + tmp7 * m10 + tmp10 * m30));
-    dst[7] = d * ((tmp4 * m00 + tmp9 * m10 + tmp10 * m20) -
-                  (tmp5 * m00 + tmp8 * m10 + tmp11 * m20));
- 
-    dst[8] = d * ((tmp12 * m13 + tmp15 * m23 + tmp16 * m33) -
-                  (tmp13 * m13 + tmp14 * m23 + tmp17 * m33));
-    dst[9] = d * ((tmp13 * m03 + tmp18 * m23 + tmp21 * m33) -
-                  (tmp12 * m03 + tmp19 * m23 + tmp20 * m33));
-    dst[10] = d * ((tmp14 * m03 + tmp19 * m13 + tmp22 * m33) -
-                   (tmp15 * m03 + tmp18 * m13 + tmp23 * m33));
-    dst[11] = d * ((tmp17 * m03 + tmp20 * m13 + tmp23 * m23) -
-                   (tmp16 * m03 + tmp21 * m13 + tmp22 * m23));
- 
-    dst[12] = d * ((tmp14 * m22 + tmp17 * m32 + tmp13 * m12) -
-                   (tmp16 * m32 + tmp12 * m12 + tmp15 * m22));
-    dst[13] = d * ((tmp20 * m32 + tmp12 * m02 + tmp19 * m22) -
-                   (tmp18 * m22 + tmp21 * m32 + tmp13 * m02));
-    dst[14] = d * ((tmp18 * m12 + tmp23 * m32 + tmp15 * m02) -
-                   (tmp22 * m32 + tmp14 * m02 + tmp19 * m12));
-    dst[15] = d * ((tmp22 * m22 + tmp16 * m02 + tmp21 * m12) -
-                   (tmp20 * m12 + tmp23 * m22 + tmp17 * m02));
+
+    dst[4] =
+      d *
+      (tmp1 * m10 +
+        tmp2 * m20 +
+        tmp5 * m30 -
+        (tmp0 * m10 + tmp3 * m20 + tmp4 * m30));
+    dst[5] =
+      d *
+      (tmp0 * m00 +
+        tmp7 * m20 +
+        tmp8 * m30 -
+        (tmp1 * m00 + tmp6 * m20 + tmp9 * m30));
+    dst[6] =
+      d *
+      (tmp3 * m00 +
+        tmp6 * m10 +
+        tmp11 * m30 -
+        (tmp2 * m00 + tmp7 * m10 + tmp10 * m30));
+    dst[7] =
+      d *
+      (tmp4 * m00 +
+        tmp9 * m10 +
+        tmp10 * m20 -
+        (tmp5 * m00 + tmp8 * m10 + tmp11 * m20));
+
+    dst[8] =
+      d *
+      (tmp12 * m13 +
+        tmp15 * m23 +
+        tmp16 * m33 -
+        (tmp13 * m13 + tmp14 * m23 + tmp17 * m33));
+    dst[9] =
+      d *
+      (tmp13 * m03 +
+        tmp18 * m23 +
+        tmp21 * m33 -
+        (tmp12 * m03 + tmp19 * m23 + tmp20 * m33));
+    dst[10] =
+      d *
+      (tmp14 * m03 +
+        tmp19 * m13 +
+        tmp22 * m33 -
+        (tmp15 * m03 + tmp18 * m13 + tmp23 * m33));
+    dst[11] =
+      d *
+      (tmp17 * m03 +
+        tmp20 * m13 +
+        tmp23 * m23 -
+        (tmp16 * m03 + tmp21 * m13 + tmp22 * m23));
+
+    dst[12] =
+      d *
+      (tmp14 * m22 +
+        tmp17 * m32 +
+        tmp13 * m12 -
+        (tmp16 * m32 + tmp12 * m12 + tmp15 * m22));
+    dst[13] =
+      d *
+      (tmp20 * m32 +
+        tmp12 * m02 +
+        tmp19 * m22 -
+        (tmp18 * m22 + tmp21 * m32 + tmp13 * m02));
+    dst[14] =
+      d *
+      (tmp18 * m12 +
+        tmp23 * m32 +
+        tmp15 * m02 -
+        (tmp22 * m32 + tmp14 * m02 + tmp19 * m12));
+    dst[15] =
+      d *
+      (tmp22 * m22 +
+        tmp16 * m02 +
+        tmp21 * m12 -
+        (tmp20 * m12 + tmp23 * m22 + tmp17 * m02));
     return dst;
   },
 
-  // prettier-ignore
   aim(eye, target, up, dst) {
     dst = dst || new Float32Array(16);
- 
+
     const zAxis = vec3.normalize(vec3.subtract(target, eye));
     const xAxis = vec3.normalize(vec3.cross(up, zAxis));
     const yAxis = vec3.normalize(vec3.cross(zAxis, xAxis));
- 
-    dst[ 0] = xAxis[0];  dst[ 1] = xAxis[1];  dst[ 2] = xAxis[2];  dst[ 3] = 0;
-    dst[ 4] = yAxis[0];  dst[ 5] = yAxis[1];  dst[ 6] = yAxis[2];  dst[ 7] = 0;
-    dst[ 8] = zAxis[0];  dst[ 9] = zAxis[1];  dst[10] = zAxis[2];  dst[11] = 0;
-    dst[12] = eye[0];    dst[13] = eye[1];    dst[14] = eye[2];    dst[15] = 1;
- 
+
+    dst[0] = xAxis[0];
+    dst[1] = xAxis[1];
+    dst[2] = xAxis[2];
+    dst[3] = 0;
+    dst[4] = yAxis[0];
+    dst[5] = yAxis[1];
+    dst[6] = yAxis[2];
+    dst[7] = 0;
+    dst[8] = zAxis[0];
+    dst[9] = zAxis[1];
+    dst[10] = zAxis[2];
+    dst[11] = 0;
+    dst[12] = eye[0];
+    dst[13] = eye[1];
+    dst[14] = eye[2];
+    dst[15] = 1;
+
     return dst;
   },
 
-  // prettier-ignore
   cameraAim(eye, target, up, dst) {
     dst = dst || new Float32Array(16);
- 
+
     const zAxis = vec3.normalize(vec3.subtract(eye, target));
     const xAxis = vec3.normalize(vec3.cross(up, zAxis));
     const yAxis = vec3.normalize(vec3.cross(zAxis, xAxis));
- 
-    dst[ 0] = xAxis[0];  dst[ 1] = xAxis[1];  dst[ 2] = xAxis[2];  dst[ 3] = 0;
-    dst[ 4] = yAxis[0];  dst[ 5] = yAxis[1];  dst[ 6] = yAxis[2];  dst[ 7] = 0;
-    dst[ 8] = zAxis[0];  dst[ 9] = zAxis[1];  dst[10] = zAxis[2];  dst[11] = 0;
-    dst[12] = eye[0];    dst[13] = eye[1];    dst[14] = eye[2];    dst[15] = 1;
- 
+
+    dst[0] = xAxis[0];
+    dst[1] = xAxis[1];
+    dst[2] = xAxis[2];
+    dst[3] = 0;
+    dst[4] = yAxis[0];
+    dst[5] = yAxis[1];
+    dst[6] = yAxis[2];
+    dst[7] = 0;
+    dst[8] = zAxis[0];
+    dst[9] = zAxis[1];
+    dst[10] = zAxis[2];
+    dst[11] = 0;
+    dst[12] = eye[0];
+    dst[13] = eye[1];
+    dst[14] = eye[2];
+    dst[15] = 1;
+
     return dst;
   },
 
@@ -423,59 +488,114 @@ const mat4 = {
     return mat4.inverse(mat4.cameraAim(eye, target, up, dst), dst);
   },
 
-  // prettier-ignore
   translation([tx, ty, tz], dst) {
     dst = dst || new Float32Array(16);
-    dst[ 0] = 1;   dst[ 1] = 0;   dst[ 2] = 0;   dst[ 3] = 0;
-    dst[ 4] = 0;   dst[ 5] = 1;   dst[ 6] = 0;   dst[ 7] = 0;
-    dst[ 8] = 0;   dst[ 9] = 0;   dst[10] = 1;   dst[11] = 0;
-    dst[12] = tx;  dst[13] = ty;  dst[14] = tz;  dst[15] = 1;
+    dst[0] = 1;
+    dst[1] = 0;
+    dst[2] = 0;
+    dst[3] = 0;
+    dst[4] = 0;
+    dst[5] = 1;
+    dst[6] = 0;
+    dst[7] = 0;
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = 1;
+    dst[11] = 0;
+    dst[12] = tx;
+    dst[13] = ty;
+    dst[14] = tz;
+    dst[15] = 1;
     return dst;
   },
 
-  // prettier-ignore
   rotationX(angleInRadians, dst) {
     const c = Math.cos(angleInRadians);
     const s = Math.sin(angleInRadians);
     dst = dst || new Float32Array(16);
-    dst[ 0] = 1;  dst[ 1] = 0;   dst[ 2] = 0;  dst[ 3] = 0;
-    dst[ 4] = 0;  dst[ 5] = c;   dst[ 6] = s;  dst[ 7] = 0;
-    dst[ 8] = 0;  dst[ 9] = -s;  dst[10] = c;  dst[11] = 0;
-    dst[12] = 0;  dst[13] = 0;   dst[14] = 0;  dst[15] = 1;
+    dst[0] = 1;
+    dst[1] = 0;
+    dst[2] = 0;
+    dst[3] = 0;
+    dst[4] = 0;
+    dst[5] = c;
+    dst[6] = s;
+    dst[7] = 0;
+    dst[8] = 0;
+    dst[9] = -s;
+    dst[10] = c;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
     return dst;
   },
 
-  // prettier-ignore
   rotationY(angleInRadians, dst) {
     const c = Math.cos(angleInRadians);
     const s = Math.sin(angleInRadians);
     dst = dst || new Float32Array(16);
-    dst[ 0] = c;  dst[ 1] = 0;  dst[ 2] = -s;  dst[ 3] = 0;
-    dst[ 4] = 0;  dst[ 5] = 1;  dst[ 6] = 0;   dst[ 7] = 0;
-    dst[ 8] = s;  dst[ 9] = 0;  dst[10] = c;   dst[11] = 0;
-    dst[12] = 0;  dst[13] = 0;  dst[14] = 0;   dst[15] = 1;
+    dst[0] = c;
+    dst[1] = 0;
+    dst[2] = -s;
+    dst[3] = 0;
+    dst[4] = 0;
+    dst[5] = 1;
+    dst[6] = 0;
+    dst[7] = 0;
+    dst[8] = s;
+    dst[9] = 0;
+    dst[10] = c;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
     return dst;
   },
 
-  // prettier-ignore
   rotationZ(angleInRadians, dst) {
     const c = Math.cos(angleInRadians);
     const s = Math.sin(angleInRadians);
     dst = dst || new Float32Array(16);
-    dst[ 0] = c;   dst[ 1] = s;  dst[ 2] = 0;  dst[ 3] = 0;
-    dst[ 4] = -s;  dst[ 5] = c;  dst[ 6] = 0;  dst[ 7] = 0;
-    dst[ 8] = 0;   dst[ 9] = 0;  dst[10] = 1;  dst[11] = 0;
-    dst[12] = 0;   dst[13] = 0;  dst[14] = 0;  dst[15] = 1;
+    dst[0] = c;
+    dst[1] = s;
+    dst[2] = 0;
+    dst[3] = 0;
+    dst[4] = -s;
+    dst[5] = c;
+    dst[6] = 0;
+    dst[7] = 0;
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = 1;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
     return dst;
   },
 
-  // prettier-ignore
   scaling([sx, sy, sz], dst) {
     dst = dst || new Float32Array(16);
-    dst[ 0] = sx;  dst[ 1] = 0;   dst[ 2] = 0;    dst[ 3] = 0;
-    dst[ 4] = 0;   dst[ 5] = sy;  dst[ 6] = 0;    dst[ 7] = 0;
-    dst[ 8] = 0;   dst[ 9] = 0;   dst[10] = sz;   dst[11] = 0;
-    dst[12] = 0;   dst[13] = 0;   dst[14] = 0;    dst[15] = 1;
+    dst[0] = sx;
+    dst[1] = 0;
+    dst[2] = 0;
+    dst[3] = 0;
+    dst[4] = 0;
+    dst[5] = sy;
+    dst[6] = 0;
+    dst[7] = 0;
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = sz;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
     return dst;
   },
 
@@ -564,49 +684,45 @@ async function main() {
   context.configure({
     device,
     format: presentationFormat,
-    alphaMode: "premultiplied", // make the canvas transparent
+    alphaMode: "premultiplied",
   });
 
-  // Create a shader module
   const module = device.createShaderModule({
-    label: "our hardcoded red triangle shaders",
     code: /* wgsl */ `
-        struct Uniforms {
-          matrix: mat4x4f,
-          color: vec4f,
-        };
-        
-        struct Vertex {
-          @location(0) position: vec4f,
-          @location(1) color: vec4f,
-        };
-        
-        struct VSOutput {
-          @builtin(position) position: vec4f,
-          @location(0) color: vec4f,
-        };
-        
-        @group(0) @binding(0) var<uniform> uni: Uniforms;
-        
-        @vertex fn vs(vert: Vertex) -> VSOutput {
-          var vsOut: VSOutput;
-          vsOut.position = uni.matrix * vert.position;
-          vsOut.color = vert.color;
-          return vsOut;
-        }
-        
-        @fragment fn fs(vsOut: VSOutput) -> @location(0) vec4f {
-          return vsOut.color * uni.color;
-        }
-    `,
+          struct Uniforms {
+            matrix: mat4x4f,
+            color: vec4f,
+          };
+    
+          struct Vertex {
+            @location(0) position: vec4f,
+            @location(1) color: vec4f,
+          };
+    
+          struct VSOutput {
+            @builtin(position) position: vec4f,
+            @location(0) color: vec4f,
+          };
+    
+          @group(0) @binding(0) var<uniform> uni: Uniforms;
+    
+          @vertex fn vs(vert: Vertex) -> VSOutput {
+            var vsOut: VSOutput;
+            vsOut.position = uni.matrix * vert.position;
+            vsOut.color = vert.color;
+            return vsOut;
+          }
+    
+          @fragment fn fs(vsOut: VSOutput) -> @location(0) vec4f {
+            return vsOut.color * uni.color;
+          }
+        `,
   });
 
-  // Create a render pipeline
   const pipeline = device.createRenderPipeline({
-    label: "2 attributes",
+    label: "2 attributes with color",
     layout: "auto",
     vertex: {
-      //   entryPoint: "vs",
       module,
       buffers: [
         {
@@ -619,7 +735,6 @@ async function main() {
       ],
     },
     fragment: {
-      //   entryPoint: "fs",
       module,
       targets: [{ format: presentationFormat }],
     },
@@ -628,7 +743,7 @@ async function main() {
     },
     depthStencil: {
       depthWriteEnabled: true,
-      depthCompare: "less", // draw if the new depth is less than the old depth
+      depthCompare: "less",
       format: "depth24plus",
     },
   });
@@ -670,35 +785,19 @@ async function main() {
     };
   }
 
-  function createVertices({ vertexData, numVertices }, name) {
-    const vertexBuffer = device.createBuffer({
-      label: "${name}: vertex buffer vertices",
-      size: vertexData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-    return {
-      vertexBuffer,
-      numVertices,
-    };
-  }
+  const { vertexData, numVertices } = createCubeVertices();
+  const vertexBuffer = device.createBuffer({
+    label: "vertex buffer vertices",
+    size: vertexData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(vertexBuffer, 0, vertexData);
 
-  const cubeVertices = createVertices(createCubeVertices(), "cube");
-  const ornamentVertices = createVertices(
-    createConeVertices({
-      radius: 20,
-      height: 60,
-    }),
-    "ornament",
-  );
-
-  // Prepare a render pass descriptor
   const renderPassDescriptor = {
     label: "our basic canvas renderPass",
     colorAttachments: [
       {
         // view: <- to be filled out when we render
-        // clearValue: [0.3, 0.3, 0.3, 1],
         loadOp: "clear",
         storeOp: "store",
       },
@@ -754,9 +853,8 @@ async function main() {
 
   const stack = new MatrixStack();
 
-  function drawObject(ctx, vertices, matrix, color) {
+  function drawObject(ctx, matrix, color) {
     const { pass, viewProjectionMatrix } = ctx;
-    const { vertexBuffer, numVertices } = vertices;
     if (objectNdx === objectInfos.length) {
       objectInfos.push(createObjectInfo());
     }
@@ -769,7 +867,6 @@ async function main() {
     // upload the uniform values to the uniform buffer
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
-    pass.setVertexBuffer(0, vertexBuffer);
     pass.setBindGroup(0, bindGroup);
     pass.draw(numVertices);
   }
@@ -777,7 +874,7 @@ async function main() {
   function drawBranch(ctx) {
     const { stack } = ctx;
     stack.save().scale(kBranchSize).translate(kBranchPosition);
-    drawObject(ctx, cubeVertices, stack.get(), kWhite);
+    drawObject(ctx, stack.get(), kWhite);
     stack.restore();
   }
 
@@ -799,15 +896,9 @@ async function main() {
       drawTreeLevel(ctx, +1, treeDepth - 1);
     }
 
-    if (treeDepth === 0 && offset > 0) {
-      const position = vec3.getTranslation(stack.get());
-      drawObject(ctx, ornamentVertices, mat4.translation(position), kWhite);
-    }
-
     stack.restore();
   }
 
-  // render pass
   function render() {
     objectNdx = 0;
 
@@ -835,12 +926,10 @@ async function main() {
     renderPassDescriptor.depthStencilAttachment.view =
       depthTexture.createView();
 
-    // make a command encoder to start encoding commands
-    const encoder = device.createCommandEncoder({ label: "our encoder" });
-
-    // make a render pass encoder to encode render specific commands
+    const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass(renderPassDescriptor);
     pass.setPipeline(pipeline);
+    pass.setVertexBuffer(0, vertexBuffer);
 
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const projection = mat4.perspective(
@@ -862,7 +951,6 @@ async function main() {
 
     stack.save();
     stack.rotateY(settings.baseRotation);
-
     objectNdx = 0;
     const ctx = { pass, stack, viewProjectionMatrix };
     drawTreeLevel(ctx, 0, kTreeDepth);
@@ -873,9 +961,7 @@ async function main() {
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
   }
-  // render();
 
-  // re-render when the canvas resizes
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
       const canvas = entry.target;
@@ -889,15 +975,14 @@ async function main() {
         1,
         Math.min(height, device.limits.maxTextureDimension2D),
       );
+      // re-render
+      render();
     }
-    // re-render
-    render();
   });
   observer.observe(canvas);
 }
 
 function fail(msg) {
-  // eslint-disable-next-line no-alert
   alert(msg);
 }
 

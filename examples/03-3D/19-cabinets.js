@@ -57,55 +57,6 @@ function createCubeVertices() {
   };
 }
 
-// tip is at origin, base is below
-function createConeVertices({ radius = 1, height = 1, subdivisions = 6 } = {}) {
-  const positions = [];
-  const colors = [];
-
-  function addVertex(angle, radius, height, color) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    positions.push(c * radius, height, s * radius);
-    colors.push(...color);
-  }
-
-  for (let i = 0; i < subdivisions; ++i) {
-    const angle0 = ((i + 0) / subdivisions) * Math.PI * 2;
-    const angle1 = ((i + 1) / subdivisions) * Math.PI * 2;
-
-    const u = (i + 1) / subdivisions;
-    const color = [u * 128 + 127, 0, 0];
-
-    // add side
-    addVertex(angle0, 0, 0, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, radius, -height, color);
-
-    // add top
-    addVertex(angle0, radius, -height, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, 0, -height, color);
-  }
-
-  const numVertices = positions.length / 3;
-  const vertexData = new Float32Array(numVertices * 4); // xyz + color
-  const colorData = new Uint8Array(vertexData.buffer);
-
-  for (let i = 0; i < numVertices; ++i) {
-    const position = positions.slice(i * 3, i * 3 + 3);
-    vertexData.set(position, i * 4);
-
-    const color = colors.slice(i * 3, i * 3 + 3);
-    colorData.set(color, i * 16 + 12);
-    colorData[i * 16 + 15] = 255;
-  }
-
-  return {
-    vertexData,
-    numVertices,
-  };
-}
-
 const vec3 = {
   cross(a, b, dst) {
     dst = dst || new Float32Array(3);
@@ -145,16 +96,6 @@ const vec3 = {
       dst[1] = 0;
       dst[2] = 0;
     }
-
-    return dst;
-  },
-
-  getTranslation(m, dst) {
-    dst = dst || new Float32Array(3);
-
-    dst[0] = m[12];
-    dst[1] = m[13];
-    dst[2] = m[14];
 
     return dst;
   },
@@ -670,27 +611,13 @@ async function main() {
     };
   }
 
-  function createVertices({ vertexData, numVertices }, name) {
-    const vertexBuffer = device.createBuffer({
-      label: "${name}: vertex buffer vertices",
-      size: vertexData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-    return {
-      vertexBuffer,
-      numVertices,
-    };
-  }
-
-  const cubeVertices = createVertices(createCubeVertices(), "cube");
-  const ornamentVertices = createVertices(
-    createConeVertices({
-      radius: 20,
-      height: 60,
-    }),
-    "ornament",
-  );
+  const { vertexData, numVertices } = createCubeVertices();
+  const vertexBuffer = device.createBuffer({
+    label: "vertex buffer vertices",
+    size: vertexData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(vertexBuffer, 0, vertexData);
 
   // Prepare a render pass descriptor
   const renderPassDescriptor = {
@@ -715,48 +642,46 @@ async function main() {
 
   const settings = {
     baseRotation: 0,
-    scale: 0.9,
-    rotationX: degToRad(20),
-    rotationY: degToRad(10),
   };
 
   const radToDegOptions = {
-    min: -180,
-    max: 180,
-    step: 1,
-    converters: GUI.converters.radToDeg,
-  };
-  const treeRadToDegOptions = {
-    min: 0,
-    max: 90,
+    min: -360,
+    max: 360,
     step: 1,
     converters: GUI.converters.radToDeg,
   };
 
   const gui = new GUI();
   gui.onChange(render);
-  gui.add(settings, "scale", 0.1, 1.2);
-  gui.add(settings, "rotationX", treeRadToDegOptions);
-  gui.add(settings, "rotationY", treeRadToDegOptions);
   gui.add(settings, "baseRotation", radToDegOptions);
 
-  const kTreeDepth = 6;
-  const [, /*kWidth*/ kHeight /*kDepth*/] = [0, 1, 2];
-  // Moves the 1 unit cube so it's center above the origin so that when it scales
-  // it scales out in x and z and up (y) from the origin
-  const kBranchPosition = [-0.5, 0, 0.5];
-  const kBranchSize = [20, 150, 20];
+  const kHandleColor = [0.5, 0.5, 0.5, 1];
+  const kDrawerColor = [1, 1, 1, 1];
+  const kCabinetColor = [0.75, 0.75, 0.75, 0.75];
+  const kNumDrawersPerCabinet = 4;
+  const kNumCabinets = 5;
 
-  const kWhite = [1, 1, 1, 1];
+  const kDrawerSize = [40, 30, 50];
+  const kHandleSize = [10, 2, 2];
+
+  const [kWidth, kHeight, kDepth] = [0, 1, 2];
+
+  const kHandlePosition = [
+    (kDrawerSize[kWidth] - kHandleSize[kWidth]) / 2,
+    (kDrawerSize[kHeight] * 2) / 3,
+    kHandleSize[kDepth],
+  ];
+
+  const kDrawerSpacing = kDrawerSize[kHeight] + 3;
+  const kCabinetSpacing = kDrawerSize[kWidth] + 10;
 
   let depthTexture;
   let objectNdx = 0;
 
   const stack = new MatrixStack();
 
-  function drawObject(ctx, vertices, matrix, color) {
+  function drawObject(ctx, matrix, color) {
     const { pass, viewProjectionMatrix } = ctx;
-    const { vertexBuffer, numVertices } = vertices;
     if (objectNdx === objectInfos.length) {
       objectInfos.push(createObjectInfo());
     }
@@ -769,42 +694,54 @@ async function main() {
     // upload the uniform values to the uniform buffer
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
-    pass.setVertexBuffer(0, vertexBuffer);
     pass.setBindGroup(0, bindGroup);
     pass.draw(numVertices);
   }
 
-  function drawBranch(ctx) {
+  function drawDrawer(ctx) {
     const { stack } = ctx;
-    stack.save().scale(kBranchSize).translate(kBranchPosition);
-    drawObject(ctx, cubeVertices, stack.get(), kWhite);
+    stack.save();
+    stack.scale(kDrawerSize);
+    drawObject(ctx, stack.get(), kDrawerColor);
+    stack.restore();
+
+    stack.save();
+    stack.translate(kHandlePosition);
+    stack.scale(kHandleSize);
+    drawObject(ctx, stack.get(), kHandleColor);
     stack.restore();
   }
 
-  function drawTreeLevel(ctx, offset, treeDepth) {
+  function drawCabinet(ctx, numDrawersPerCabinet) {
     const { stack } = ctx;
-    const s = offset ? settings.scale : 1;
-    const y = offset ? kBranchSize[kHeight] : 0;
-    stack
-      .save()
-      .translate([0, y, 0])
-      .rotateZ(offset * settings.rotationX)
-      .rotateY(Math.abs(offset) * settings.rotationY)
-      .scale([s, s, s]);
 
-    drawBranch(ctx);
+    const kCabinetSize = [
+      kDrawerSize[kWidth] + 6,
+      kDrawerSpacing * numDrawersPerCabinet + 6,
+      kDrawerSize[kDepth] + 4,
+    ];
 
-    if (treeDepth > 0) {
-      drawTreeLevel(ctx, -1, treeDepth - 1);
-      drawTreeLevel(ctx, +1, treeDepth - 1);
-    }
-
-    if (treeDepth === 0 && offset > 0) {
-      const position = vec3.getTranslation(stack.get());
-      drawObject(ctx, ornamentVertices, mat4.translation(position), kWhite);
-    }
-
+    stack.save();
+    stack.scale(kCabinetSize);
+    drawObject(ctx, stack.get(), kCabinetColor);
     stack.restore();
+
+    for (let i = 0; i < numDrawersPerCabinet; ++i) {
+      stack.save();
+      stack.translate([3, i * kDrawerSpacing + 5, 1]);
+      drawDrawer(ctx);
+      stack.restore();
+    }
+  }
+
+  function drawCabinets(ctx, numCabinets) {
+    const { stack } = ctx;
+    for (let i = 0; i < numCabinets; ++i) {
+      stack.save();
+        stack.translate([i * kCabinetSpacing, 0, 0]);
+        drawCabinet(ctx, kNumDrawersPerCabinet);
+      stack.restore();
+    }
   }
 
   // render pass
@@ -841,6 +778,7 @@ async function main() {
     // make a render pass encoder to encode render specific commands
     const pass = encoder.beginRenderPass(renderPassDescriptor);
     pass.setPipeline(pipeline);
+    pass.setVertexBuffer(0, vertexBuffer);
 
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const projection = mat4.perspective(
@@ -850,8 +788,8 @@ async function main() {
       2000, // zFar
     );
 
-    const eye = [0, 450, 1000];
-    const target = [0, 450, 0];
+    const eye = [0, 80, 200];
+    const target = [0, 80, 0];
     const up = [0, 1, 0];
 
     // Compute a view matrix
@@ -862,10 +800,11 @@ async function main() {
 
     stack.save();
     stack.rotateY(settings.baseRotation);
+    stack.translate([(kNumCabinets - 0.5) * kCabinetSpacing * -0.5, 0, 0]);
 
     objectNdx = 0;
     const ctx = { pass, stack, viewProjectionMatrix };
-    drawTreeLevel(ctx, 0, kTreeDepth);
+    drawCabinets(ctx, kNumCabinets);
     stack.restore();
 
     pass.end();

@@ -57,55 +57,6 @@ function createCubeVertices() {
   };
 }
 
-// tip is at origin, base is below
-function createConeVertices({ radius = 1, height = 1, subdivisions = 6 } = {}) {
-  const positions = [];
-  const colors = [];
-
-  function addVertex(angle, radius, height, color) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    positions.push(c * radius, height, s * radius);
-    colors.push(...color);
-  }
-
-  for (let i = 0; i < subdivisions; ++i) {
-    const angle0 = ((i + 0) / subdivisions) * Math.PI * 2;
-    const angle1 = ((i + 1) / subdivisions) * Math.PI * 2;
-
-    const u = (i + 1) / subdivisions;
-    const color = [u * 128 + 127, 0, 0];
-
-    // add side
-    addVertex(angle0, 0, 0, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, radius, -height, color);
-
-    // add top
-    addVertex(angle0, radius, -height, color);
-    addVertex(angle1, radius, -height, color);
-    addVertex(angle0, 0, -height, color);
-  }
-
-  const numVertices = positions.length / 3;
-  const vertexData = new Float32Array(numVertices * 4); // xyz + color
-  const colorData = new Uint8Array(vertexData.buffer);
-
-  for (let i = 0; i < numVertices; ++i) {
-    const position = positions.slice(i * 3, i * 3 + 3);
-    vertexData.set(position, i * 4);
-
-    const color = colors.slice(i * 3, i * 3 + 3);
-    colorData.set(color, i * 16 + 12);
-    colorData[i * 16 + 15] = 255;
-  }
-
-  return {
-    vertexData,
-    numVertices,
-  };
-}
-
 const vec3 = {
   cross(a, b, dst) {
     dst = dst || new Float32Array(3);
@@ -148,26 +99,10 @@ const vec3 = {
 
     return dst;
   },
-
-  getTranslation(m, dst) {
-    dst = dst || new Float32Array(3);
-
-    dst[0] = m[12];
-    dst[1] = m[13];
-    dst[2] = m[14];
-
-    return dst;
-  },
 };
 
 // each mat3 is actually a 3x4 matrix (due to the memory layout of WebGPU)
 const mat4 = {
-  copy(src, dst) {
-    dst = dst || new Float32Array(16);
-    dst.set(src);
-    return dst;
-  },
-
   projection(width, height, depth, dst) {
     // Note: This matrix flips the Y axis so that 0 is at the top.
     return mat4.ortho(0, width, height, 0, depth / 2, -depth / 2, dst);
@@ -500,55 +435,6 @@ const mat4 = {
   },
 };
 
-class MatrixStack {
-  #matrix;
-  #stack;
-
-  constructor() {
-    this.reset();
-  }
-  reset() {
-    this.#matrix = mat4.identity();
-    this.#stack = [];
-    return this;
-  }
-  save() {
-    this.#stack.push(this.#matrix);
-    this.#matrix = mat4.copy(this.#matrix);
-    return this;
-  }
-  restore() {
-    this.#matrix = this.#stack.pop();
-    return this;
-  }
-  get() {
-    return this.#matrix;
-  }
-  set(matrix) {
-    return this.#matrix.set(matrix);
-  }
-  translate(translation) {
-    mat4.translate(this.#matrix, translation, this.#matrix);
-    return this;
-  }
-  rotateX(angle) {
-    mat4.rotateX(this.#matrix, angle, this.#matrix);
-    return this;
-  }
-  rotateY(angle) {
-    mat4.rotateY(this.#matrix, angle, this.#matrix);
-    return this;
-  }
-  rotateZ(angle) {
-    mat4.rotateZ(this.#matrix, angle, this.#matrix);
-    return this;
-  }
-  scale(scale) {
-    mat4.scale(this.#matrix, scale, this.#matrix);
-    return this;
-  }
-}
-
 async function main() {
   const adapter = await navigator.gpu?.requestAdapter();
   const device = await adapter?.requestDevice();
@@ -670,27 +556,13 @@ async function main() {
     };
   }
 
-  function createVertices({ vertexData, numVertices }, name) {
-    const vertexBuffer = device.createBuffer({
-      label: "${name}: vertex buffer vertices",
-      size: vertexData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-    return {
-      vertexBuffer,
-      numVertices,
-    };
-  }
-
-  const cubeVertices = createVertices(createCubeVertices(), "cube");
-  const ornamentVertices = createVertices(
-    createConeVertices({
-      radius: 20,
-      height: 60,
-    }),
-    "ornament",
-  );
+  const { vertexData, numVertices } = createCubeVertices();
+  const vertexBuffer = device.createBuffer({
+    label: "vertex buffer vertices",
+    size: vertexData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(vertexBuffer, 0, vertexData);
 
   // Prepare a render pass descriptor
   const renderPassDescriptor = {
@@ -715,48 +587,24 @@ async function main() {
 
   const settings = {
     baseRotation: 0,
-    scale: 0.9,
-    rotationX: degToRad(20),
-    rotationY: degToRad(10),
   };
 
   const radToDegOptions = {
-    min: -180,
-    max: 180,
-    step: 1,
-    converters: GUI.converters.radToDeg,
-  };
-  const treeRadToDegOptions = {
-    min: 0,
-    max: 90,
+    min: -360,
+    max: 360,
     step: 1,
     converters: GUI.converters.radToDeg,
   };
 
   const gui = new GUI();
   gui.onChange(render);
-  gui.add(settings, "scale", 0.1, 1.2);
-  gui.add(settings, "rotationX", treeRadToDegOptions);
-  gui.add(settings, "rotationY", treeRadToDegOptions);
   gui.add(settings, "baseRotation", radToDegOptions);
-
-  const kTreeDepth = 6;
-  const [, /*kWidth*/ kHeight /*kDepth*/] = [0, 1, 2];
-  // Moves the 1 unit cube so it's center above the origin so that when it scales
-  // it scales out in x and z and up (y) from the origin
-  const kBranchPosition = [-0.5, 0, 0.5];
-  const kBranchSize = [20, 150, 20];
-
-  const kWhite = [1, 1, 1, 1];
 
   let depthTexture;
   let objectNdx = 0;
 
-  const stack = new MatrixStack();
-
-  function drawObject(ctx, vertices, matrix, color) {
+  function drawObject(ctx, matrix, color) {
     const { pass, viewProjectionMatrix } = ctx;
-    const { vertexBuffer, numVertices } = vertices;
     if (objectNdx === objectInfos.length) {
       objectInfos.push(createObjectInfo());
     }
@@ -769,42 +617,8 @@ async function main() {
     // upload the uniform values to the uniform buffer
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
-    pass.setVertexBuffer(0, vertexBuffer);
     pass.setBindGroup(0, bindGroup);
     pass.draw(numVertices);
-  }
-
-  function drawBranch(ctx) {
-    const { stack } = ctx;
-    stack.save().scale(kBranchSize).translate(kBranchPosition);
-    drawObject(ctx, cubeVertices, stack.get(), kWhite);
-    stack.restore();
-  }
-
-  function drawTreeLevel(ctx, offset, treeDepth) {
-    const { stack } = ctx;
-    const s = offset ? settings.scale : 1;
-    const y = offset ? kBranchSize[kHeight] : 0;
-    stack
-      .save()
-      .translate([0, y, 0])
-      .rotateZ(offset * settings.rotationX)
-      .rotateY(Math.abs(offset) * settings.rotationY)
-      .scale([s, s, s]);
-
-    drawBranch(ctx);
-
-    if (treeDepth > 0) {
-      drawTreeLevel(ctx, -1, treeDepth - 1);
-      drawTreeLevel(ctx, +1, treeDepth - 1);
-    }
-
-    if (treeDepth === 0 && offset > 0) {
-      const position = vec3.getTranslation(stack.get());
-      drawObject(ctx, ornamentVertices, mat4.translation(position), kWhite);
-    }
-
-    stack.restore();
   }
 
   // render pass
@@ -841,6 +655,7 @@ async function main() {
     // make a render pass encoder to encode render specific commands
     const pass = encoder.beginRenderPass(renderPassDescriptor);
     pass.setPipeline(pipeline);
+    pass.setVertexBuffer(0, vertexBuffer);
 
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const projection = mat4.perspective(
@@ -850,8 +665,8 @@ async function main() {
       2000, // zFar
     );
 
-    const eye = [0, 450, 1000];
-    const target = [0, 450, 0];
+    const eye = [0, 2, 3];
+    const target = [0, 1, 0];
     const up = [0, 1, 0];
 
     // Compute a view matrix
@@ -860,13 +675,9 @@ async function main() {
     // combine the view and projection matrixes
     const viewProjectionMatrix = mat4.multiply(projection, viewMatrix);
 
-    stack.save();
-    stack.rotateY(settings.baseRotation);
-
     objectNdx = 0;
-    const ctx = { pass, stack, viewProjectionMatrix };
-    drawTreeLevel(ctx, 0, kTreeDepth);
-    stack.restore();
+    const ctx = { pass, viewProjectionMatrix };
+    drawObject(ctx, mat4.rotationY(settings.baseRotation), [1, 1, 1, 1]);
 
     pass.end();
 
