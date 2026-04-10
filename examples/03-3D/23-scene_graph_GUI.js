@@ -443,7 +443,6 @@ const mat4 = {
 };
 
 const degToRad = (d) => (d * Math.PI) / 180;
-const lerp = (a, b, t) => a + (b - a) * t;
 
 class SceneGraphNode {
   constructor(name, source) {
@@ -701,8 +700,6 @@ async function main() {
   const kDrawerSpacing = kDrawerSize[kHeight] + 3;
   const kCabinetSpacing = kDrawerSize[kWidth] + 10;
 
-  const animNodes = [];
-
   function addDrawer(parent, drawerNdx) {
     const drawerName = `drawer${drawerNdx}`;
 
@@ -710,7 +707,6 @@ async function main() {
     const drawer = addTRSSceneGraphNode(drawerName, parent, {
       translation: [3, drawerNdx * kDrawerSpacing + 5, 1],
     });
-    animNodes.push(drawer);
 
     // add a node with a cube for the drawer cube.
     addCubeNode(
@@ -826,7 +822,6 @@ async function main() {
 
   const settings = {
     cameraRotation: degToRad(-45),
-    animate: false,
     showMeshNodes: false,
     showAllTRS: false,
   };
@@ -897,11 +892,8 @@ async function main() {
   }
 
   const gui = new GUI();
-  gui.onChange(requestRender);
+  gui.onChange(render);
   gui.add(settings, "cameraRotation", cameraRadToDegOptions);
-  gui.add(settings, "animate").onChange((v) => {
-    trsFolder.enable(!v);
-  });
   gui.add(settings, "showMeshNodes").onChange(showMeshNodes);
   gui.add(settings, "showAllTRS").onChange(showTRS);
   const trsFolder = gui.addFolder("orientation");
@@ -966,20 +958,8 @@ async function main() {
     drawObject(ctx, vertices, node.worldMatrix, color);
   }
 
-  let renderRequestId;
-  function requestRender() {
-    if (!renderRequestId) {
-      renderRequestId = requestAnimationFrame(render);
-    }
-  }
-
-  let then;
-  let time = 0;
-  let wasRunning = false;
-
   // render pass
   function render() {
-    renderRequestId = undefined;
     objectNdx = 0;
 
     // Get the current texture from the canvas context and
@@ -1043,31 +1023,6 @@ async function main() {
 
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
-
-    const isRunning = settings.animate;
-    const now = performance.now() * 0.001;
-    const deltaTime = wasRunning ? now - then : 0;
-    then = now;
-
-    if (isRunning) {
-      time += deltaTime;
-    }
-    wasRunning = isRunning;
-
-    if (settings.animate) {
-      animate(time);
-      trsFolder.updateDisplay();
-      requestRender();
-    }
-  }
-
-  function animate(time) {
-    animNodes.forEach((node, i) => {
-      const source = node.source;
-      const t = time + i * 1;
-      const l = Math.sin(t) * 0.5 + 0.5;
-      source.translation[2] = lerp(1, kDrawerSize[2] * 0.8, l);
-    });
   }
 
   // re-render when the canvas resizes
@@ -1086,7 +1041,7 @@ async function main() {
       );
     }
     // re-render
-    requestRender();
+    render();
   });
   observer.observe(canvas);
 }

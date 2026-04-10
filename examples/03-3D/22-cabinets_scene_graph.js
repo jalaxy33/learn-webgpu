@@ -1,72 +1,39 @@
 import GUI from "https://webgpufundamentals.org/3rdparty/muigui-0.x.module.js";
 
 function createCubeVertices() {
+  // prettier-ignore
   const positions = [
     // left
-    0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 1, -1,
+    0, 0,  0,
+    0, 0, -1,
+    0, 1,  0,
+    0, 1, -1,
 
     // right
-    1, 0, 0, 1, 0, -1, 1, 1, 0, 1, 1, -1,
+    1, 0,  0,
+    1, 0, -1,
+    1, 1,  0,
+    1, 1, -1,
   ];
 
+  // prettier-ignore
   const indices = [
-    0,
-    2,
-    1,
-    2,
-    3,
-    1, // left
-    4,
-    5,
-    6,
-    6,
-    5,
-    7, // right
-    0,
-    4,
-    2,
-    2,
-    4,
-    6, // front
-    1,
-    3,
-    5,
-    5,
-    3,
-    7, // back
-    0,
-    1,
-    4,
-    4,
-    1,
-    5, // bottom
-    2,
-    6,
-    3,
-    3,
-    6,
-    7, // top
+    0,  2,  1,    2,  3,  1,   // left
+     4,  5,  6,    6,  5,  7,   // right
+     0,  4,  2,    2,  4,  6,   // front
+     1,  3,  5,    5,  3,  7,   // back
+     0,  1,  4,    4,  1,  5,   // bottom
+     2,  6,  3,    3,  6,  7,   // top
   ];
 
+  // prettier-ignore
   const quadColors = [
-    200,
-    70,
-    120, // left column front
-    80,
-    70,
-    200, // left column back
-    70,
-    200,
-    210, // top
-    160,
-    160,
-    220, // top rung right
-    90,
-    130,
-    110, // top rung bottom
-    200,
-    200,
-    70, // between top and middle rung
+      200,  70, 120,  // left column front
+      80,  70, 200,  // left column back
+      70, 200, 210,  // top
+    160, 160, 220,  // top rung right
+      90, 130, 110,  // top rung bottom
+    200, 200,  70,  // between top and middle rung
   ];
 
   const numVertices = indices.length;
@@ -80,8 +47,8 @@ function createCubeVertices() {
 
     const quadNdx = ((i / 6) | 0) * 3;
     const color = quadColors.slice(quadNdx, quadNdx + 3);
-    colorData.set(color, i * 16 + 12);
-    colorData[i * 16 + 15] = 255;
+    colorData.set(color, i * 16 + 12); // set RGB
+    colorData[i * 16 + 15] = 255; // set A
   }
 
   return {
@@ -134,6 +101,7 @@ const vec3 = {
   },
 };
 
+// each mat3 is actually a 3x4 matrix (due to the memory layout of WebGPU)
 const mat4 = {
   copy(src, dst) {
     dst = dst || new Float32Array(16);
@@ -143,7 +111,33 @@ const mat4 = {
 
   projection(width, height, depth, dst) {
     // Note: This matrix flips the Y axis so that 0 is at the top.
-    return mat4.ortho(0, width, height, 0, depth, -depth, dst);
+    return mat4.ortho(0, width, height, 0, depth / 2, -depth / 2, dst);
+  },
+
+  ortho(left, right, bottom, top, near, far, dst) {
+    dst = dst || new Float32Array(16);
+
+    dst[0] = 2 / (right - left);
+    dst[1] = 0;
+    dst[2] = 0;
+    dst[3] = 0;
+
+    dst[4] = 0;
+    dst[5] = 2 / (top - bottom);
+    dst[6] = 0;
+    dst[7] = 0;
+
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = 1 / (near - far);
+    dst[11] = 0;
+
+    dst[12] = (right + left) / (left - right);
+    dst[13] = (top + bottom) / (bottom - top);
+    dst[14] = near / (near - far);
+    dst[15] = 1;
+
+    return dst;
   },
 
   perspective(fieldOfViewYInRadians, aspect, zNear, zFar, dst) {
@@ -175,50 +169,13 @@ const mat4 = {
     return dst;
   },
 
-  ortho(left, right, bottom, top, near, far, dst) {
-    dst = dst || new Float32Array(16);
-
-    dst[0] = 2 / (right - left);
-    dst[1] = 0;
-    dst[2] = 0;
-    dst[3] = 0;
-
-    dst[4] = 0;
-    dst[5] = 2 / (top - bottom);
-    dst[6] = 0;
-    dst[7] = 0;
-
-    dst[8] = 0;
-    dst[9] = 0;
-    dst[10] = 1 / (near - far);
-    dst[11] = 0;
-
-    dst[12] = (right + left) / (left - right);
-    dst[13] = (top + bottom) / (bottom - top);
-    dst[14] = near / (near - far);
-    dst[15] = 1;
-
-    return dst;
-  },
-
+  // prettier-ignore
   identity(dst) {
     dst = dst || new Float32Array(16);
-    dst[0] = 1;
-    dst[1] = 0;
-    dst[2] = 0;
-    dst[3] = 0;
-    dst[4] = 0;
-    dst[5] = 1;
-    dst[6] = 0;
-    dst[7] = 0;
-    dst[8] = 0;
-    dst[9] = 0;
-    dst[10] = 1;
-    dst[11] = 0;
-    dst[12] = 0;
-    dst[13] = 0;
-    dst[14] = 0;
-    dst[15] = 1;
+    dst[ 0] = 1;  dst[ 1] = 0;  dst[ 2] = 0;   dst[ 3] = 0;
+    dst[ 4] = 0;  dst[ 5] = 1;  dst[ 6] = 0;   dst[ 7] = 0;
+    dst[ 8] = 0;  dst[ 9] = 0;  dst[10] = 1;   dst[11] = 0;
+    dst[12] = 0;  dst[13] = 0;  dst[14] = 0;   dst[15] = 1;
     return dst;
   },
 
@@ -280,9 +237,10 @@ const mat4 = {
     return dst;
   },
 
+  // prettier-ignore
   inverse(m, dst) {
     dst = dst || new Float32Array(16);
-
+ 
     const m00 = m[0 * 4 + 0];
     const m01 = m[0 * 4 + 1];
     const m02 = m[0 * 4 + 2];
@@ -299,7 +257,7 @@ const mat4 = {
     const m31 = m[3 * 4 + 1];
     const m32 = m[3 * 4 + 2];
     const m33 = m[3 * 4 + 3];
-
+ 
     const tmp0 = m22 * m33;
     const tmp1 = m32 * m23;
     const tmp2 = m12 * m33;
@@ -324,163 +282,81 @@ const mat4 = {
     const tmp21 = m20 * m01;
     const tmp22 = m00 * m11;
     const tmp23 = m10 * m01;
-
-    const t0 =
-      tmp0 * m11 +
-      tmp3 * m21 +
-      tmp4 * m31 -
-      (tmp1 * m11 + tmp2 * m21 + tmp5 * m31);
-    const t1 =
-      tmp1 * m01 +
-      tmp6 * m21 +
-      tmp9 * m31 -
-      (tmp0 * m01 + tmp7 * m21 + tmp8 * m31);
-    const t2 =
-      tmp2 * m01 +
-      tmp7 * m11 +
-      tmp10 * m31 -
-      (tmp3 * m01 + tmp6 * m11 + tmp11 * m31);
-    const t3 =
-      tmp5 * m01 +
-      tmp8 * m11 +
-      tmp11 * m21 -
-      (tmp4 * m01 + tmp9 * m11 + tmp10 * m21);
-
+ 
+    const t0 = (tmp0 * m11 + tmp3 * m21 + tmp4 * m31) -
+               (tmp1 * m11 + tmp2 * m21 + tmp5 * m31);
+    const t1 = (tmp1 * m01 + tmp6 * m21 + tmp9 * m31) -
+               (tmp0 * m01 + tmp7 * m21 + tmp8 * m31);
+    const t2 = (tmp2 * m01 + tmp7 * m11 + tmp10 * m31) -
+               (tmp3 * m01 + tmp6 * m11 + tmp11 * m31);
+    const t3 = (tmp5 * m01 + tmp8 * m11 + tmp11 * m21) -
+               (tmp4 * m01 + tmp9 * m11 + tmp10 * m21);
+ 
     const d = 1 / (m00 * t0 + m10 * t1 + m20 * t2 + m30 * t3);
-
+ 
     dst[0] = d * t0;
     dst[1] = d * t1;
     dst[2] = d * t2;
     dst[3] = d * t3;
-
-    dst[4] =
-      d *
-      (tmp1 * m10 +
-        tmp2 * m20 +
-        tmp5 * m30 -
-        (tmp0 * m10 + tmp3 * m20 + tmp4 * m30));
-    dst[5] =
-      d *
-      (tmp0 * m00 +
-        tmp7 * m20 +
-        tmp8 * m30 -
-        (tmp1 * m00 + tmp6 * m20 + tmp9 * m30));
-    dst[6] =
-      d *
-      (tmp3 * m00 +
-        tmp6 * m10 +
-        tmp11 * m30 -
-        (tmp2 * m00 + tmp7 * m10 + tmp10 * m30));
-    dst[7] =
-      d *
-      (tmp4 * m00 +
-        tmp9 * m10 +
-        tmp10 * m20 -
-        (tmp5 * m00 + tmp8 * m10 + tmp11 * m20));
-
-    dst[8] =
-      d *
-      (tmp12 * m13 +
-        tmp15 * m23 +
-        tmp16 * m33 -
-        (tmp13 * m13 + tmp14 * m23 + tmp17 * m33));
-    dst[9] =
-      d *
-      (tmp13 * m03 +
-        tmp18 * m23 +
-        tmp21 * m33 -
-        (tmp12 * m03 + tmp19 * m23 + tmp20 * m33));
-    dst[10] =
-      d *
-      (tmp14 * m03 +
-        tmp19 * m13 +
-        tmp22 * m33 -
-        (tmp15 * m03 + tmp18 * m13 + tmp23 * m33));
-    dst[11] =
-      d *
-      (tmp17 * m03 +
-        tmp20 * m13 +
-        tmp23 * m23 -
-        (tmp16 * m03 + tmp21 * m13 + tmp22 * m23));
-
-    dst[12] =
-      d *
-      (tmp14 * m22 +
-        tmp17 * m32 +
-        tmp13 * m12 -
-        (tmp16 * m32 + tmp12 * m12 + tmp15 * m22));
-    dst[13] =
-      d *
-      (tmp20 * m32 +
-        tmp12 * m02 +
-        tmp19 * m22 -
-        (tmp18 * m22 + tmp21 * m32 + tmp13 * m02));
-    dst[14] =
-      d *
-      (tmp18 * m12 +
-        tmp23 * m32 +
-        tmp15 * m02 -
-        (tmp22 * m32 + tmp14 * m02 + tmp19 * m12));
-    dst[15] =
-      d *
-      (tmp22 * m22 +
-        tmp16 * m02 +
-        tmp21 * m12 -
-        (tmp20 * m12 + tmp23 * m22 + tmp17 * m02));
+ 
+    dst[4] = d * ((tmp1 * m10 + tmp2 * m20 + tmp5 * m30) -
+                  (tmp0 * m10 + tmp3 * m20 + tmp4 * m30));
+    dst[5] = d * ((tmp0 * m00 + tmp7 * m20 + tmp8 * m30) -
+                  (tmp1 * m00 + tmp6 * m20 + tmp9 * m30));
+    dst[6] = d * ((tmp3 * m00 + tmp6 * m10 + tmp11 * m30) -
+                  (tmp2 * m00 + tmp7 * m10 + tmp10 * m30));
+    dst[7] = d * ((tmp4 * m00 + tmp9 * m10 + tmp10 * m20) -
+                  (tmp5 * m00 + tmp8 * m10 + tmp11 * m20));
+ 
+    dst[8] = d * ((tmp12 * m13 + tmp15 * m23 + tmp16 * m33) -
+                  (tmp13 * m13 + tmp14 * m23 + tmp17 * m33));
+    dst[9] = d * ((tmp13 * m03 + tmp18 * m23 + tmp21 * m33) -
+                  (tmp12 * m03 + tmp19 * m23 + tmp20 * m33));
+    dst[10] = d * ((tmp14 * m03 + tmp19 * m13 + tmp22 * m33) -
+                   (tmp15 * m03 + tmp18 * m13 + tmp23 * m33));
+    dst[11] = d * ((tmp17 * m03 + tmp20 * m13 + tmp23 * m23) -
+                   (tmp16 * m03 + tmp21 * m13 + tmp22 * m23));
+ 
+    dst[12] = d * ((tmp14 * m22 + tmp17 * m32 + tmp13 * m12) -
+                   (tmp16 * m32 + tmp12 * m12 + tmp15 * m22));
+    dst[13] = d * ((tmp20 * m32 + tmp12 * m02 + tmp19 * m22) -
+                   (tmp18 * m22 + tmp21 * m32 + tmp13 * m02));
+    dst[14] = d * ((tmp18 * m12 + tmp23 * m32 + tmp15 * m02) -
+                   (tmp22 * m32 + tmp14 * m02 + tmp19 * m12));
+    dst[15] = d * ((tmp22 * m22 + tmp16 * m02 + tmp21 * m12) -
+                   (tmp20 * m12 + tmp23 * m22 + tmp17 * m02));
     return dst;
   },
 
+  // prettier-ignore
   aim(eye, target, up, dst) {
     dst = dst || new Float32Array(16);
-
+ 
     const zAxis = vec3.normalize(vec3.subtract(target, eye));
     const xAxis = vec3.normalize(vec3.cross(up, zAxis));
     const yAxis = vec3.normalize(vec3.cross(zAxis, xAxis));
-
-    dst[0] = xAxis[0];
-    dst[1] = xAxis[1];
-    dst[2] = xAxis[2];
-    dst[3] = 0;
-    dst[4] = yAxis[0];
-    dst[5] = yAxis[1];
-    dst[6] = yAxis[2];
-    dst[7] = 0;
-    dst[8] = zAxis[0];
-    dst[9] = zAxis[1];
-    dst[10] = zAxis[2];
-    dst[11] = 0;
-    dst[12] = eye[0];
-    dst[13] = eye[1];
-    dst[14] = eye[2];
-    dst[15] = 1;
-
+ 
+    dst[ 0] = xAxis[0];  dst[ 1] = xAxis[1];  dst[ 2] = xAxis[2];  dst[ 3] = 0;
+    dst[ 4] = yAxis[0];  dst[ 5] = yAxis[1];  dst[ 6] = yAxis[2];  dst[ 7] = 0;
+    dst[ 8] = zAxis[0];  dst[ 9] = zAxis[1];  dst[10] = zAxis[2];  dst[11] = 0;
+    dst[12] = eye[0];    dst[13] = eye[1];    dst[14] = eye[2];    dst[15] = 1;
+ 
     return dst;
   },
 
+  // prettier-ignore
   cameraAim(eye, target, up, dst) {
     dst = dst || new Float32Array(16);
-
+ 
     const zAxis = vec3.normalize(vec3.subtract(eye, target));
     const xAxis = vec3.normalize(vec3.cross(up, zAxis));
     const yAxis = vec3.normalize(vec3.cross(zAxis, xAxis));
-
-    dst[0] = xAxis[0];
-    dst[1] = xAxis[1];
-    dst[2] = xAxis[2];
-    dst[3] = 0;
-    dst[4] = yAxis[0];
-    dst[5] = yAxis[1];
-    dst[6] = yAxis[2];
-    dst[7] = 0;
-    dst[8] = zAxis[0];
-    dst[9] = zAxis[1];
-    dst[10] = zAxis[2];
-    dst[11] = 0;
-    dst[12] = eye[0];
-    dst[13] = eye[1];
-    dst[14] = eye[2];
-    dst[15] = 1;
-
+ 
+    dst[ 0] = xAxis[0];  dst[ 1] = xAxis[1];  dst[ 2] = xAxis[2];  dst[ 3] = 0;
+    dst[ 4] = yAxis[0];  dst[ 5] = yAxis[1];  dst[ 6] = yAxis[2];  dst[ 7] = 0;
+    dst[ 8] = zAxis[0];  dst[ 9] = zAxis[1];  dst[10] = zAxis[2];  dst[11] = 0;
+    dst[12] = eye[0];    dst[13] = eye[1];    dst[14] = eye[2];    dst[15] = 1;
+ 
     return dst;
   },
 
@@ -488,114 +364,59 @@ const mat4 = {
     return mat4.inverse(mat4.cameraAim(eye, target, up, dst), dst);
   },
 
+  // prettier-ignore
   translation([tx, ty, tz], dst) {
     dst = dst || new Float32Array(16);
-    dst[0] = 1;
-    dst[1] = 0;
-    dst[2] = 0;
-    dst[3] = 0;
-    dst[4] = 0;
-    dst[5] = 1;
-    dst[6] = 0;
-    dst[7] = 0;
-    dst[8] = 0;
-    dst[9] = 0;
-    dst[10] = 1;
-    dst[11] = 0;
-    dst[12] = tx;
-    dst[13] = ty;
-    dst[14] = tz;
-    dst[15] = 1;
+    dst[ 0] = 1;   dst[ 1] = 0;   dst[ 2] = 0;   dst[ 3] = 0;
+    dst[ 4] = 0;   dst[ 5] = 1;   dst[ 6] = 0;   dst[ 7] = 0;
+    dst[ 8] = 0;   dst[ 9] = 0;   dst[10] = 1;   dst[11] = 0;
+    dst[12] = tx;  dst[13] = ty;  dst[14] = tz;  dst[15] = 1;
     return dst;
   },
 
+  // prettier-ignore
   rotationX(angleInRadians, dst) {
     const c = Math.cos(angleInRadians);
     const s = Math.sin(angleInRadians);
     dst = dst || new Float32Array(16);
-    dst[0] = 1;
-    dst[1] = 0;
-    dst[2] = 0;
-    dst[3] = 0;
-    dst[4] = 0;
-    dst[5] = c;
-    dst[6] = s;
-    dst[7] = 0;
-    dst[8] = 0;
-    dst[9] = -s;
-    dst[10] = c;
-    dst[11] = 0;
-    dst[12] = 0;
-    dst[13] = 0;
-    dst[14] = 0;
-    dst[15] = 1;
+    dst[ 0] = 1;  dst[ 1] = 0;   dst[ 2] = 0;  dst[ 3] = 0;
+    dst[ 4] = 0;  dst[ 5] = c;   dst[ 6] = s;  dst[ 7] = 0;
+    dst[ 8] = 0;  dst[ 9] = -s;  dst[10] = c;  dst[11] = 0;
+    dst[12] = 0;  dst[13] = 0;   dst[14] = 0;  dst[15] = 1;
     return dst;
   },
 
+  // prettier-ignore
   rotationY(angleInRadians, dst) {
     const c = Math.cos(angleInRadians);
     const s = Math.sin(angleInRadians);
     dst = dst || new Float32Array(16);
-    dst[0] = c;
-    dst[1] = 0;
-    dst[2] = -s;
-    dst[3] = 0;
-    dst[4] = 0;
-    dst[5] = 1;
-    dst[6] = 0;
-    dst[7] = 0;
-    dst[8] = s;
-    dst[9] = 0;
-    dst[10] = c;
-    dst[11] = 0;
-    dst[12] = 0;
-    dst[13] = 0;
-    dst[14] = 0;
-    dst[15] = 1;
+    dst[ 0] = c;  dst[ 1] = 0;  dst[ 2] = -s;  dst[ 3] = 0;
+    dst[ 4] = 0;  dst[ 5] = 1;  dst[ 6] = 0;   dst[ 7] = 0;
+    dst[ 8] = s;  dst[ 9] = 0;  dst[10] = c;   dst[11] = 0;
+    dst[12] = 0;  dst[13] = 0;  dst[14] = 0;   dst[15] = 1;
     return dst;
   },
 
+  // prettier-ignore
   rotationZ(angleInRadians, dst) {
     const c = Math.cos(angleInRadians);
     const s = Math.sin(angleInRadians);
     dst = dst || new Float32Array(16);
-    dst[0] = c;
-    dst[1] = s;
-    dst[2] = 0;
-    dst[3] = 0;
-    dst[4] = -s;
-    dst[5] = c;
-    dst[6] = 0;
-    dst[7] = 0;
-    dst[8] = 0;
-    dst[9] = 0;
-    dst[10] = 1;
-    dst[11] = 0;
-    dst[12] = 0;
-    dst[13] = 0;
-    dst[14] = 0;
-    dst[15] = 1;
+    dst[ 0] = c;   dst[ 1] = s;  dst[ 2] = 0;  dst[ 3] = 0;
+    dst[ 4] = -s;  dst[ 5] = c;  dst[ 6] = 0;  dst[ 7] = 0;
+    dst[ 8] = 0;   dst[ 9] = 0;  dst[10] = 1;  dst[11] = 0;
+    dst[12] = 0;   dst[13] = 0;  dst[14] = 0;  dst[15] = 1;
     return dst;
   },
 
+  // prettier-ignore
   scaling([sx, sy, sz], dst) {
     dst = dst || new Float32Array(16);
-    dst[0] = sx;
-    dst[1] = 0;
-    dst[2] = 0;
-    dst[3] = 0;
-    dst[4] = 0;
-    dst[5] = sy;
-    dst[6] = 0;
-    dst[7] = 0;
-    dst[8] = 0;
-    dst[9] = 0;
-    dst[10] = sz;
-    dst[11] = 0;
-    dst[12] = 0;
-    dst[13] = 0;
-    dst[14] = 0;
-    dst[15] = 1;
+    dst[ 0] = sx;  dst[ 1] = 0;   dst[ 2] = 0;    dst[ 3] = 0;
+    dst[ 4] = 0;   dst[ 5] = sy;  dst[ 6] = 0;    dst[ 7] = 0;
+    dst[ 8] = 0;   dst[ 9] = 0;   dst[10] = sz;   dst[11] = 0;
+    dst[12] = 0;   dst[13] = 0;   dst[14] = 0;    dst[15] = 1;
     return dst;
   },
 
@@ -620,52 +441,82 @@ const mat4 = {
   },
 };
 
-class MatrixStack {
-  #matrix;
-  #stack;
+const degToRad = (d) => (d * Math.PI) / 180;
 
-  constructor() {
-    this.reset();
+class SceneGraphNode {
+  constructor(name, source) {
+    this.name = name;
+    this.children = [];
+    this.localMatrix = mat4.identity();
+    this.worldMatrix = mat4.identity();
+    this.source = source;
   }
-  reset() {
-    this.#matrix = mat4.identity();
-    this.#stack = [];
-    return this;
+
+  addChild(child) {
+    child.setParent(this);
   }
-  save() {
-    this.#stack.push(this.#matrix);
-    this.#matrix = mat4.copy(this.#matrix);
-    return this;
+
+  removeChild(child) {
+    child.setParent(null);
   }
-  restore() {
-    this.#matrix = this.#stack.pop();
-    return this;
+
+  setParent(parent) {
+    // remove us from our parent
+    if (this.parent) {
+      const ndx = this.parent.children.indexOf(this);
+      if (ndx >= 0) {
+        this.parent.children.splice(ndx, 1);
+      }
+    }
+
+    // Add us to our new parent
+    if (parent) {
+      parent.children.push(this);
+    }
+    this.parent = parent;
   }
-  get() {
-    return this.#matrix;
+
+  updateWorldMatrix() {
+    // update the local matrix from its source if it has one.
+    this.source?.getMatrix(this.localMatrix);
+
+    if (this.parent) {
+      // we have a parent do the math
+      mat4.multiply(
+        this.parent.worldMatrix,
+        this.localMatrix,
+        this.worldMatrix,
+      );
+    } else {
+      // we have no parent so just copy local to world
+      mat4.copy(this.localMatrix, this.worldMatrix);
+    }
+
+    // now process all the children
+    this.children.forEach(function (child) {
+      child.updateWorldMatrix();
+    });
   }
-  set(matrix) {
-    return this.#matrix.set(matrix);
+}
+
+class TRS {
+  constructor({
+    translation = [0, 0, 0],
+    rotation = [0, 0, 0],
+    scale = [1, 1, 1],
+  } = {}) {
+    this.translation = new Float32Array(translation);
+    this.rotation = new Float32Array(rotation);
+    this.scale = new Float32Array(scale);
   }
-  translate(translation) {
-    mat4.translate(this.#matrix, translation, this.#matrix);
-    return this;
-  }
-  rotateX(angle) {
-    mat4.rotateX(this.#matrix, angle, this.#matrix);
-    return this;
-  }
-  rotateY(angle) {
-    mat4.rotateY(this.#matrix, angle, this.#matrix);
-    return this;
-  }
-  rotateZ(angle) {
-    mat4.rotateZ(this.#matrix, angle, this.#matrix);
-    return this;
-  }
-  scale(scale) {
-    mat4.scale(this.#matrix, scale, this.#matrix);
-    return this;
+
+  getMatrix(dst) {
+    mat4.translation(this.translation, dst);
+    mat4.rotateX(dst, this.rotation[0], dst);
+    mat4.rotateY(dst, this.rotation[1], dst);
+    mat4.rotateZ(dst, this.rotation[2], dst);
+    mat4.scale(dst, this.scale, dst);
+    return dst;
   }
 }
 
@@ -684,45 +535,49 @@ async function main() {
   context.configure({
     device,
     format: presentationFormat,
-    alphaMode: "premultiplied",
+    alphaMode: "premultiplied", // make the canvas transparent
   });
 
+  // Create a shader module
   const module = device.createShaderModule({
+    label: "our hardcoded red triangle shaders",
     code: /* wgsl */ `
-          struct Uniforms {
-            matrix: mat4x4f,
-            color: vec4f,
-          };
-    
-          struct Vertex {
-            @location(0) position: vec4f,
-            @location(1) color: vec4f,
-          };
-    
-          struct VSOutput {
-            @builtin(position) position: vec4f,
-            @location(0) color: vec4f,
-          };
-    
-          @group(0) @binding(0) var<uniform> uni: Uniforms;
-    
-          @vertex fn vs(vert: Vertex) -> VSOutput {
-            var vsOut: VSOutput;
-            vsOut.position = uni.matrix * vert.position;
-            vsOut.color = vert.color;
-            return vsOut;
-          }
-    
-          @fragment fn fs(vsOut: VSOutput) -> @location(0) vec4f {
-            return vsOut.color * uni.color;
-          }
-        `,
+        struct Uniforms {
+          matrix: mat4x4f,
+          color: vec4f,
+        };
+        
+        struct Vertex {
+          @location(0) position: vec4f,
+          @location(1) color: vec4f,
+        };
+        
+        struct VSOutput {
+          @builtin(position) position: vec4f,
+          @location(0) color: vec4f,
+        };
+        
+        @group(0) @binding(0) var<uniform> uni: Uniforms;
+        
+        @vertex fn vs(vert: Vertex) -> VSOutput {
+          var vsOut: VSOutput;
+          vsOut.position = uni.matrix * vert.position;
+          vsOut.color = vert.color;
+          return vsOut;
+        }
+        
+        @fragment fn fs(vsOut: VSOutput) -> @location(0) vec4f {
+          return vsOut.color * uni.color;
+        }
+    `,
   });
 
+  // Create a render pipeline
   const pipeline = device.createRenderPipeline({
-    label: "2 attributes with color",
+    label: "2 attributes",
     layout: "auto",
     vertex: {
+      //   entryPoint: "vs",
       module,
       buffers: [
         {
@@ -735,6 +590,7 @@ async function main() {
       ],
     },
     fragment: {
+      //   entryPoint: "fs",
       module,
       targets: [{ format: presentationFormat }],
     },
@@ -743,7 +599,7 @@ async function main() {
     },
     depthStencil: {
       depthWriteEnabled: true,
-      depthCompare: "less",
+      depthCompare: "less", // draw if the new depth is less than the old depth
       format: "depth24plus",
     },
   });
@@ -785,19 +641,136 @@ async function main() {
     };
   }
 
-  const { vertexData, numVertices } = createCubeVertices();
-  const vertexBuffer = device.createBuffer({
-    label: "vertex buffer vertices",
-    size: vertexData.byteLength,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+  function addTRSSceneGraphNode(name, parent, trs) {
+    const node = new SceneGraphNode(name, new TRS(trs));
+    if (parent) {
+      node.setParent(parent);
+    }
+    return node;
+  }
 
+  const meshes = [];
+  function addMesh(node, vertices, color) {
+    const mesh = {
+      node,
+      vertices,
+      color,
+    };
+    meshes.push(mesh);
+    return mesh;
+  }
+
+  function addCubeNode(name, parent, trs, color) {
+    const node = addTRSSceneGraphNode(name, parent, trs);
+    return addMesh(node, cubeVertices, color);
+  }
+
+  function createVertices({ vertexData, numVertices }, name) {
+    const vertexBuffer = device.createBuffer({
+      label: `${name}: vertex buffer vertices`,
+      size: vertexData.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+    return {
+      vertexBuffer,
+      numVertices,
+    };
+  }
+
+  const cubeVertices = createVertices(createCubeVertices(), "cube");
+  const kHandleColor = [0.5, 0.5, 0.5, 1];
+  const kDrawerColor = [1, 1, 1, 1];
+  const kCabinetColor = [0.75, 0.75, 0.75, 0.75];
+  const kNumDrawersPerCabinet = 4;
+  const kNumCabinets = 5;
+
+  const kDrawerSize = [40, 30, 50];
+  const kHandleSize = [10, 2, 2];
+
+  const [kWidth, kHeight, kDepth] = [0, 1, 2];
+
+  const kHandlePosition = [
+    (kDrawerSize[kWidth] - kHandleSize[kWidth]) / 2,
+    (kDrawerSize[kHeight] * 2) / 3,
+    kHandleSize[kDepth],
+  ];
+
+  const kDrawerSpacing = kDrawerSize[kHeight] + 3;
+  const kCabinetSpacing = kDrawerSize[kWidth] + 10;
+
+  function addDrawer(parent, drawerNdx) {
+    const drawerName = `drawer${drawerNdx}`;
+
+    // add a node for the entire drawer
+    const drawer = addTRSSceneGraphNode(drawerName, parent, {
+      translation: [3, drawerNdx * kDrawerSpacing + 5, 1],
+    });
+
+    // add a node with a cube for the drawer cube.
+    addCubeNode(
+      `${drawerName}-drawer-mesh`,
+      drawer,
+      {
+        scale: kDrawerSize,
+      },
+      kDrawerColor,
+    );
+
+    // add a node with a cube for the handle
+    addCubeNode(
+      `${drawerName}-handle-mesh`,
+      drawer,
+      {
+        translation: kHandlePosition,
+        scale: kHandleSize,
+      },
+      kHandleColor,
+    );
+  }
+
+  function addCabinet(parent, cabinetNdx) {
+    const cabinetName = `cabinet${cabinetNdx}`;
+
+    // add a node for the entire cabinet
+    const cabinet = addTRSSceneGraphNode(cabinetName, parent, {
+      translation: [cabinetNdx * kCabinetSpacing, 0, 0],
+    });
+
+    // add a node with a cube for the cabinet
+    const kCabinetSize = [
+      kDrawerSize[kWidth] + 6,
+      kDrawerSpacing * kNumDrawersPerCabinet + 6,
+      kDrawerSize[kDepth] + 4,
+    ];
+    addCubeNode(
+      `${cabinetName}-mesh`,
+      cabinet,
+      {
+        scale: kCabinetSize,
+      },
+      kCabinetColor,
+    );
+
+    // Add the drawers
+    for (let drawerNdx = 0; drawerNdx < kNumDrawersPerCabinet; ++drawerNdx) {
+      addDrawer(cabinet, drawerNdx);
+    }
+  }
+
+  const root = new SceneGraphNode("root");
+  // Add cabinets
+  for (let cabinetNdx = 0; cabinetNdx < kNumCabinets; ++cabinetNdx) {
+    addCabinet(root, cabinetNdx);
+  }
+
+  // Prepare a render pass descriptor
   const renderPassDescriptor = {
     label: "our basic canvas renderPass",
     colorAttachments: [
       {
         // view: <- to be filled out when we render
+        // clearValue: [0.3, 0.3, 0.3, 1],
         loadOp: "clear",
         storeOp: "store",
       },
@@ -810,13 +783,8 @@ async function main() {
     },
   };
 
-  const degToRad = (d) => (d * Math.PI) / 180;
-
   const settings = {
-    baseRotation: 0,
-    scale: 0.9,
-    rotationX: degToRad(20),
-    rotationY: degToRad(10),
+    cameraRotation: 0,
   };
 
   const radToDegOptions = {
@@ -825,36 +793,17 @@ async function main() {
     step: 1,
     converters: GUI.converters.radToDeg,
   };
-  const treeRadToDegOptions = {
-    min: 0,
-    max: 90,
-    step: 1,
-    converters: GUI.converters.radToDeg,
-  };
 
   const gui = new GUI();
   gui.onChange(render);
-  gui.add(settings, "scale", 0.1, 1.2);
-  gui.add(settings, "rotationX", treeRadToDegOptions);
-  gui.add(settings, "rotationY", treeRadToDegOptions);
-  gui.add(settings, "baseRotation", radToDegOptions);
-
-  const kTreeDepth = 6;
-  const [, /*kWidth*/ kHeight /*kDepth*/] = [0, 1, 2];
-  // Moves the 1 unit cube so it's center above the origin so that when it scales
-  // it scales out in x and z and up (y) from the origin
-  const kBranchPosition = [-0.5, 0, 0.5];
-  const kBranchSize = [20, 150, 20];
-
-  const kWhite = [1, 1, 1, 1];
+  gui.add(settings, "cameraRotation", radToDegOptions);
 
   let depthTexture;
   let objectNdx = 0;
 
-  const stack = new MatrixStack();
-
-  function drawObject(ctx, matrix, color) {
+  function drawObject(ctx, vertices, matrix, color) {
     const { pass, viewProjectionMatrix } = ctx;
+    const { vertexBuffer, numVertices } = vertices;
     if (objectNdx === objectInfos.length) {
       objectInfos.push(createObjectInfo());
     }
@@ -867,38 +816,17 @@ async function main() {
     // upload the uniform values to the uniform buffer
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
+    pass.setVertexBuffer(0, vertexBuffer);
     pass.setBindGroup(0, bindGroup);
     pass.draw(numVertices);
   }
 
-  function drawBranch(ctx) {
-    const { stack } = ctx;
-    stack.save().scale(kBranchSize).translate(kBranchPosition);
-    drawObject(ctx, stack.get(), kWhite);
-    stack.restore();
+  function drawMesh(ctx, mesh) {
+    const { node, vertices, color } = mesh;
+    drawObject(ctx, vertices, node.worldMatrix, color);
   }
 
-  function drawTreeLevel(ctx, offset, treeDepth) {
-    const { stack } = ctx;
-    const s = offset ? settings.scale : 1;
-    const y = offset ? kBranchSize[kHeight] : 0;
-    stack
-      .save()
-      .translate([0, y, 0])
-      .rotateZ(offset * settings.rotationX)
-      .rotateY(Math.abs(offset) * settings.rotationY)
-      .scale([s, s, s]);
-
-    drawBranch(ctx);
-
-    if (treeDepth > 0) {
-      drawTreeLevel(ctx, -1, treeDepth - 1);
-      drawTreeLevel(ctx, +1, treeDepth - 1);
-    }
-
-    stack.restore();
-  }
-
+  // render pass
   function render() {
     objectNdx = 0;
 
@@ -926,10 +854,12 @@ async function main() {
     renderPassDescriptor.depthStencilAttachment.view =
       depthTexture.createView();
 
+    // make a command encoder to start encoding commands
     const encoder = device.createCommandEncoder();
+
+    // make a render pass encoder to encode render specific commands
     const pass = encoder.beginRenderPass(renderPassDescriptor);
     pass.setPipeline(pipeline);
-    pass.setVertexBuffer(0, vertexBuffer);
 
     const aspect = canvas.clientWidth / canvas.clientHeight;
     const projection = mat4.perspective(
@@ -939,22 +869,23 @@ async function main() {
       2000, // zFar
     );
 
-    const eye = [0, 450, 1000];
-    const target = [0, 450, 0];
-    const up = [0, 1, 0];
+    // Compute a camera matrix
+    const cameraMatrix = mat4.identity();
+    mat4.translate(cameraMatrix, [120, 100, 0], cameraMatrix);
+    mat4.rotateY(cameraMatrix, settings.cameraRotation, cameraMatrix);
+    mat4.translate(cameraMatrix, [0, 0, 300], cameraMatrix);
 
     // Compute a view matrix
-    const viewMatrix = mat4.lookAt(eye, target, up);
+    const viewMatrix = mat4.inverse(cameraMatrix);
 
     // combine the view and projection matrixes
     const viewProjectionMatrix = mat4.multiply(projection, viewMatrix);
 
-    stack.save();
-    stack.rotateY(settings.baseRotation);
-    objectNdx = 0;
-    const ctx = { pass, stack, viewProjectionMatrix };
-    drawTreeLevel(ctx, 0, kTreeDepth);
-    stack.restore();
+    const ctx = { pass, viewProjectionMatrix };
+    root.updateWorldMatrix();
+    for (const mesh of meshes) {
+      drawMesh(ctx, mesh);
+    }
 
     pass.end();
 
@@ -962,6 +893,7 @@ async function main() {
     device.queue.submit([commandBuffer]);
   }
 
+  // re-render when the canvas resizes
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
       const canvas = entry.target;
@@ -975,14 +907,15 @@ async function main() {
         1,
         Math.min(height, device.limits.maxTextureDimension2D),
       );
-      // re-render
-      render();
     }
+    // re-render
+    render();
   });
   observer.observe(canvas);
 }
 
 function fail(msg) {
+  // eslint-disable-next-line no-alert
   alert(msg);
 }
 
