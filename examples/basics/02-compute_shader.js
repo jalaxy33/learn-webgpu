@@ -12,6 +12,7 @@ async function main() {
     code: /* wgsl */ `
       @group(0) @binding(0) var<storage, read_write> data: array<f32>;
  
+      // @workgroup_size(1) is equivalent to @workgroup_size(1, 1, 1)
       @compute @workgroup_size(1) fn computeSomething(
         @builtin(global_invocation_id) id: vec3u
       ) {
@@ -77,7 +78,7 @@ async function main() {
   });
   pass.setPipeline(pipeline);
   pass.setBindGroup(0, bindGroup);
-  pass.dispatchWorkgroups(input.length);
+  pass.dispatchWorkgroups(input.length);  // 3 workgroups
   pass.end();
 
   // Encode a command to copy the results to a mappable buffer.
